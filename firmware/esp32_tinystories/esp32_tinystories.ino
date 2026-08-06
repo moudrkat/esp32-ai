@@ -26,7 +26,9 @@
 #define LLM_PROFILE 1
 #define LLM_PROFILE_NOW() esp_timer_get_time()
 #include "../../runtime/llm.h"
+#include "../../runtime/bpe_tokenizer.h"
 #include "generated/vocab.h"
+#include "generated/tokenizer_encoder.h"
 
 // Set to 1 once a display is wired up - see display.h.
 // Leave 0 to run serial-only (no panel needed).
@@ -37,6 +39,36 @@
 
 static const int PROMPT_IDS[] = {433, 447, 259, 405}; // "Once upon a time"
 static const int N_GENERATE = 200;
+static BpeTokenizer tokenizer;   // encodes serial prompts on the device itself
+
+// --- serial prompt intake ---------------------------------------------------
+// Polled between decode steps as well as when idle, so the CDC FIFO is drained
+// continuously and a finished line parks in pending_line until loop() takes it.
+static char in_buf[256];
+static size_t in_len = 0;
+static char pending_line[256];
+static bool pending_ready = false;
+
+static bool poll_serial_line() {
+  if (pending_ready) return true;
+  while (Serial.available()) {
+    char ch = (char)Serial.read();
+    if (ch == '\r') continue;
+    if (ch == '\n') {
+      in_buf[in_len] = 0;
+      size_t had = in_len;
+      in_len = 0;
+      if (had) {
+        memcpy(pending_line, in_buf, had + 1);
+        pending_ready = true;
+        return true;
+      }
+    } else if (in_len < sizeof(in_buf) - 1) {
+      in_buf[in_len++] = ch;
+    }
+  }
+  return false;
+}
 
 Model model;
 Scratch s;
@@ -250,15 +282,31 @@ void setup() {
                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024.0,
                 heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1048576.0);
 
-  // ---- generate ----
+  if (bpe_tokenizer_load(TOKENIZER_ENCODER_ASSET, TOKENIZER_ENCODER_ASSET_SIZE,
+                         &tokenizer)) {
+    Serial.println("tokenizer load failed; serial prompts disabled");
+  }
+
+  run_story(PROMPT_IDS, sizeof(PROMPT_IDS) / sizeof(int), 0.0f);
+  // first story greedy: the known-good reference demo
+}
+
+// Tell one story: prime the prompt, decode until N_GENERATE or the context
+// fills. temp=0 decodes greedily - deterministic, and therefore in lockstep
+// with the verified brainscope twin fed the same prompt; temp>0 samples the
+// softmax at that temperature, so the standalone box keeps telling a fresh
+// story every round instead of the same one forever.
+static void run_story(const int *prompt_ids, int n_prompt, float temp) {
   Serial.print(">>> ");
-  int n_prompt = sizeof(PROMPT_IDS) / sizeof(int);
+#if USE_DISPLAY
+  display_home();
+#endif
   int pos = 0, tok = 0;
   int64_t decode_us = 0;
   int decoded = 0;
 
   for (int i = 0; i < n_prompt; i++) {  // prime with the prompt
-    tok = PROMPT_IDS[i];
+    tok = prompt_ids[i];
     emit(tok);
     llm_forward(&model, tok, pos++, &s);
   }
@@ -270,6 +318,22 @@ void setup() {
     int best = 0; float bv = -1e30f;
     for (int v = 0; v < model.out_vocab; v++)
       if (s.logits[v] > bv) { bv = s.logits[v]; best = v; }
+    if (temp > 0.0f) {
+      // Softmax sample at `temp`: two extra passes over the logits (~10 ms)
+      // against ~95 ms/token of compute. The argmax above doubles as the
+      // numeric stabilizer.
+      float sum = 0.f;
+      for (int v = 0; v < model.out_vocab; v++)
+        sum += expf((s.logits[v] - bv) / temp);
+      float r = (esp_random() / 4294967296.0f) * sum;
+      float acc = 0.f;
+      int pick = model.out_vocab - 1;
+      for (int v = 0; v < model.out_vocab; v++) {
+        acc += expf((s.logits[v] - bv) / temp);
+        if (acc >= r) { pick = v; break; }
+      }
+      best = pick;
+    }
     tok = best;
     emit(tok);
     blink((step & 1) ? 40 : 8);
@@ -279,6 +343,11 @@ void setup() {
     decode_us += esp_timer_get_time() - d0;
     decoded++;
     if ((step & 7) == 0) delay(0);  // feed the task WDT ~every 8 tokens
+    if (poll_serial_line()) {       // a new prompt interrupts this story
+      Serial.println("\n(interrupted by a new prompt)");
+      blink(0);
+      return;
+    }
   }
   int64_t total_us = esp_timer_get_time() - t_start;
 
@@ -298,4 +367,33 @@ void setup() {
   blink(0);
 }
 
-void loop() { delay(10000); }
+// A line of ASCII arriving over serial becomes the next story's opening,
+// generated greedily ON THIS CHIP - and greedy plus the verified twin means
+// brainscope fed the same prompt shows the internals of the very story the
+// panel is writing. Room is reserved for the answer: a long prompt cannot
+// eat the whole context.
+static void prompt_story(const char *text) {
+  uint16_t enc[96];
+  int n = bpe_encode_ascii(&tokenizer, text, enc, (int)(sizeof(enc) / sizeof(enc[0])));
+  if (n <= 0) { Serial.println("(ascii only, or prompt too long)"); return; }
+  int ids[96];
+  for (int i = 0; i < n; i++) ids[i] = enc[i];
+  run_story(ids, n, 0.0f);
+}
+
+// Standalone gadget mode with an ear: poll for a typed prompt continuously -
+// including BETWEEN decode steps, so a prompt interrupts the current story
+// within a token instead of sitting in the FIFO until it ends. Idle ~20 s
+// with no prompt -> tell a fresh sampled story of our own.
+void loop() {
+  uint32_t idle_start = millis();
+  while (millis() - idle_start < 20000) {
+    if (poll_serial_line()) {
+      pending_ready = false;
+      prompt_story(pending_line);
+      return;
+    }
+    delay(20);
+  }
+  run_story(PROMPT_IDS, sizeof(PROMPT_IDS) / sizeof(int), 0.7f);
+}
