@@ -2,7 +2,7 @@
 // wired to the ESP32 itself, no laptop.
 //
 // 128x64 I2C mono OLED, 4 wires:
-//   GND->GND, VCC->3V3, SCL->GPIO46, SDA->GPIO18
+//   GND->GND, VCC->3V3, SCL->GPIO8, SDA->GPIO18
 // Set OLED_CONTROLLER to match the panel: 1.3" is usually SH1106, 0.96" usually
 // SSD1306.
 //
@@ -21,11 +21,11 @@
 #define OLED_SH1106  1
 #define OLED_SSD1306 2
 #ifndef OLED_CONTROLLER
-#define OLED_CONTROLLER OLED_SH1106
+#define OLED_CONTROLLER OLED_SSD1306
 #endif
 
 #define OLED_SDA 18
-#define OLED_SCL 46
+#define OLED_SCL 8
 #ifndef OLED_ADDR
 #define OLED_ADDR 0x3C          // some panels are 0x3D
 #endif

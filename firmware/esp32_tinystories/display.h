@@ -29,11 +29,11 @@
 #define OLED_SH1106  1
 #define OLED_SSD1306 2
 #ifndef OLED_CONTROLLER
-#define OLED_CONTROLLER OLED_SH1106
+#define OLED_CONTROLLER OLED_SSD1306
 #endif
 
 #define OLED_SDA 18
-#define OLED_SCL 46
+#define OLED_SCL 8
 #define OLED_ADDR 0x3C          // some panels are 0x3D
 #define SCR_W 128
 #define SCR_H 64
