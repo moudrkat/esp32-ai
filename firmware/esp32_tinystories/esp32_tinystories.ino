@@ -287,8 +287,15 @@ void setup() {
     Serial.println("tokenizer load failed; serial prompts disabled");
   }
 
-  run_story(PROMPT_IDS, sizeof(PROMPT_IDS) / sizeof(int), 0.0f);
-  // first story greedy: the known-good reference demo
+  // Quiet start: a title card, then wait for a prompt over serial. The box
+  // speaks only when spoken to.
+#if USE_DISPLAY
+  {
+    const char idle[] = "ESP32-S3 PLE TinyLM\n28.9M params\n\nwaiting for a\nstory prompt...";
+    display_puts((const unsigned char *)idle, (int)sizeof(idle) - 1);
+  }
+#endif
+  Serial.println("ready; send a story opening followed by newline");
 }
 
 // Tell one story: prime the prompt, decode until N_GENERATE or the context
@@ -386,14 +393,9 @@ static void prompt_story(const char *text) {
 // within a token instead of sitting in the FIFO until it ends. Idle ~20 s
 // with no prompt -> tell a fresh sampled story of our own.
 void loop() {
-  uint32_t idle_start = millis();
-  while (millis() - idle_start < 20000) {
-    if (poll_serial_line()) {
-      pending_ready = false;
-      prompt_story(pending_line);
-      return;
-    }
-    delay(20);
+  if (poll_serial_line()) {
+    pending_ready = false;
+    prompt_story(pending_line);
   }
-  run_story(PROMPT_IDS, sizeof(PROMPT_IDS) / sizeof(int), 0.7f);
+  delay(20);
 }

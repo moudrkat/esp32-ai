@@ -433,6 +433,14 @@ static void llm_profile_reset(Scratch *s) {
 }
 #endif
 
+/* Optional instrumentation: a steering vector on a knob, and one attention head
+ * on LEDs. Both compile out entirely when the defines are absent, so the default
+ * build and its numerics stay exactly what host_verify signed off. See
+ * runtime/steer.h. */
+#if defined(LLM_STEER) || defined(LLM_ATTN_VIZ)
+#include "steer.h"
+#endif
+
 // One decode step: token at position pos -> logits[V]. KV cache persists across calls.
 /* Per-layer matvec dispatch: platform hook if set, otherwise MATVEC. */
 #define LLM_LMV(m, t, x, y) \
@@ -514,6 +522,13 @@ static void llm_forward(Model *m, int token, int pos, Scratch *s) {
         for (int i = 0; i < Dh; i++) ao[i] += w * vt[i];
       }
       for (int i = 0; i < Dh; i++) ao[i] /= denom;
+#ifdef LLM_ATTN_VIZ
+      /* The softmax weights are consumed inline above and never stored, but
+       * maxs and denom are still in scope, so one head costs pos+1 expf calls
+       * to recover -- and only for the head being watched. */
+      if (l == g_attn.layer && hh == g_attn.head)
+        attn_capture(s->scores, maxs, denom, pos);
+#endif
     }
     LLM_LMV(m, &m->attn_proj[l], s->att, s->h);
     for (int i = 0; i < D; i++) s->x[i] += s->h[i];
@@ -540,6 +555,12 @@ static void llm_forward(Model *m, int token, int pos, Scratch *s) {
     LLM_LMV(m, &m->ple_proj[l], s->g2, s->h);    // [D]
     rmsnorm(s->h, m->ple_norm[l], D, s->h);
     for (int i = 0; i < D; i++) s->x[i] += s->h[i];
+#ifdef LLM_STEER
+    /* Residual-stream injection, once per layer, after everything that layer
+     * contributes. Cost is D multiply-adds per token -- unmeasurable next to a
+     * 95 ms decode step. */
+    if (l == g_steer.layer) steer_apply(s->x, D);
+#endif
 #ifdef LLM_PROFILE
     profile_t1 = (uint64_t)LLM_PROFILE_NOW();
     s->profile.ple_us += profile_t1 - profile_t3;

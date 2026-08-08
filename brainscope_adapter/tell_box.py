@@ -40,7 +40,9 @@ def main():
         ser.write(args.prompt.encode("ascii") + b"\n")
     print(f"box     <- {args.prompt!r}")
 
-    def ask(url):
+    import threading
+
+    def ask(url, label):
         req = urllib.request.Request(
             url,
             data=json.dumps({
@@ -50,15 +52,18 @@ def main():
             }).encode(),
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=600) as r:
-            return json.load(r)["choices"][0]["message"]["content"]
+            text = json.load(r)["choices"][0]["message"]["content"]
+        print(f"{label}: {text[:120]}{'...' if len(text) > 120 else ''}")
 
-    print("brainscope: generating (watch the open tab)...")
-    text = ask(BRAINSCOPE)
-    print(f"twin story: {text[:160]}{'...' if len(text) > 160 else ''}")
+    # every screen starts at once: box already has the prompt, both twins now
+    print("generating everywhere at once - watch the OLED and both tabs...")
+    threads = [threading.Thread(target=ask, args=(BRAINSCOPE, "twin"))]
     if args.also_unplugged:
-        broken = ask(UNPLUGGED)
-        print(f"unplugged : {broken[:80]!r}...")
-    print("the OLED should be writing the same words as the twin, ~10 tok/s.")
+        threads.append(threading.Thread(target=ask, args=(UNPLUGGED, "unplugged")))
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
 
 
 if __name__ == "__main__":
