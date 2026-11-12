@@ -75,6 +75,7 @@ typedef struct {
   char temp[OL_TEMP_BYTES]; int temp_used;
   long steps; long waited; int depth;
   int brk, cont;          // loop control flags while unwinding a block
+  volatile int stop;      // set from a callback (a new prompt arrived): the run ends at the next step
   char err[96];
 } ol_machine;
 
@@ -365,7 +366,11 @@ static int ol_parse(ol_machine *m, const char *src) {
 }
 
 // ---------------------------------------------------------------- runtime
-static int ol_tick(ol_machine *m) { if (++m->steps > OL_MAX_STEPS) return ol_fail(m, "too many steps"); return 0; }
+static int ol_tick(ol_machine *m) {
+  if (m->stop) return ol_fail(m, "interrupted");
+  if (++m->steps > OL_MAX_STEPS) return ol_fail(m, "too many steps");
+  return 0;
+}
 static ol_var *ol_lookup(ol_machine *m, uint16_t start, uint16_t len, int create) {
   for (int k = 0; k < OL_MAX_VARS; k++)
     if (m->var[k].used && (int)strlen(m->var[k].name) == len && !memcmp(m->var[k].name, m->src + start, len)) return &m->var[k];
@@ -594,7 +599,7 @@ static int ol_check_loops(ol_machine *m, int id, int in_loop) {
 
 static int ol_run(ol_machine *m, ol_io *io) {
   memset(m->var, 0, sizeof m->var);
-  m->steps = 0; m->waited = 0; m->brk = m->cont = 0;
+  m->steps = 0; m->waited = 0; m->brk = m->cont = 0; m->stop = 0;
   if (ol_check_loops(m, m->root, 0)) return -1;
   int rc = ol_exec_block(m, m->root, io);
   if (io->done) io->done(io->ctx);
