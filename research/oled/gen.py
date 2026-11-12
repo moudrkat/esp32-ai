@@ -107,9 +107,20 @@ def f_circle(r):
 
 
 def f_frame(r):
-    prompt = pick(r, ["draw a frame around the screen", "draw a border", "make a box around the edge",
-                      "draw a rectangle around the whole screen", "border around the screen"])
-    return prompt, f"clear()\nrect(0, 0, {W}, {H})\n"
+    base = pick(r, ["draw a frame around the screen", "draw a border", "make a box around the edge",
+                    "draw a rectangle around the whole screen", "border around the screen", "frame the screen",
+                    "draw an outline around the display", "put a border on the screen"])
+    kind = pick(r, ["plain", "plain", "double", "inset", "thick"])
+    if kind == "plain":
+        return base, f"clear()\nrect(0, 0, {W}, {H})\n"
+    if kind == "double":
+        return base.replace("a frame", "a double frame").replace("a border", "a double border") + ("" if "double" in base else " twice"), \
+            f"clear()\nrect(0, 0, {W}, {H})\nrect(3, 3, {W - 6}, {H - 6})\n"
+    if kind == "inset":
+        g = r.randint(2, 10)
+        return base + f" {g} pixels from the edge", f"clear()\nrect({g}, {g}, {W - 2 * g}, {H - 2 * g})\n"
+    t = r.randint(2, 4)
+    return base + f" {t} pixels thick", f"clear()\nfor i in range({t}):\n    rect(i, i, {W} - 2 * i, {H} - 2 * i)\n"
 
 
 def f_box(r):
@@ -155,8 +166,9 @@ def f_stripes(r):
 
 def f_grid(r):
     step = pick(r, [8, 16, 32])
-    prompt = pick(r, ["draw a grid", f"draw a grid every {step} pixels", "draw graph paper"])
-    if "every" not in prompt:
+    prompt = pick(r, [f"draw a grid every {step} pixels", f"draw a grid with {step} pixel squares",
+                      f"draw graph paper with {step} pixel squares", "draw a grid", "draw graph paper"])
+    if "pixel" not in prompt:
         step = 16
     return prompt, (f"clear()\nfor x in range(0, 128, {step}):\n    line(x, 0, x, 63)\n"
                     f"for y in range(0, 64, {step}):\n    line(0, y, 127, y)\n")
@@ -179,9 +191,24 @@ def f_dots(r):
 
 
 def f_smiley(r):
-    prompt = pick(r, ["draw a smiley", "draw a smiley face", "make a happy face", "draw a face"])
-    return prompt, ("clear()\ncircle(64, 32, 24)\nfill(54, 22, 4, 4)\nfill(70, 22, 4, 4)\n"
-                    "line(54, 42, 58, 46)\nline(58, 46, 70, 46)\nline(70, 46, 74, 42)\n")
+    where = pick(r, [("", 64), (" in the middle", 64), (" on the left", 32), (" on the right", 96)])
+    size = pick(r, [("", 24), (" small", 14), (" big", 30)])
+    sad = r.random() < 0.25
+    face = "sad face" if sad else pick(r, ["smiley", "smiley face", "happy face", "face"])
+    prompt = pick(r, ["draw a", "make a", "show a", "put a"]) + size[0] + " " + face + where[0]
+    c, R = where[1], size[1]
+    e = R * 2 // 5
+    m = R // 2
+    if R + c > 127:
+        c = 127 - R
+    if c - R < 0:
+        c = R
+    prog = f"clear()\ncircle({c}, 32, {R})\nfill({c - e - 2}, {32 - e}, 4, 4)\nfill({c + e - 2}, {32 - e}, 4, 4)\n"
+    if sad:
+        prog += f"line({c - m}, {32 + m + 4}, {c - m + 4}, {32 + m})\nline({c - m + 4}, {32 + m}, {c + m - 4}, {32 + m})\nline({c + m - 4}, {32 + m}, {c + m}, {32 + m + 4})\n"
+    else:
+        prog += f"line({c - m}, {32 + m}, {c - m + 4}, {32 + m + 4})\nline({c - m + 4}, {32 + m + 4}, {c + m - 4}, {32 + m + 4})\nline({c + m - 4}, {32 + m + 4}, {c + m}, {32 + m})\n"
+    return prompt, prog
 
 
 def f_move(r):
@@ -197,18 +224,38 @@ def f_move(r):
 
 
 def f_bounce(r):
-    n = r.randint(2, 4)
-    prompt = pick(r, ["bounce a ball", f"bounce a ball {num(r, n)} times", "a ball bouncing left and right"])
+    n = r.randint(2, 5)
+    size = pick(r, [("", 4), ("small ", 2), ("big ", 8)])
+    sp, ms = pick(r, SPEED)
+    step = {100: 8, 150: 6, 300: 4, 600: 2, 1000: 1}[ms]
+    prompt = pick(r, [f"bounce a {size[0]}ball", f"bounce a {size[0]}ball {num(r, n)} times",
+                      f"a {size[0]}ball bouncing left and right", f"a {size[0]}ball bouncing between the walls {num(r, n)} times"])
     if "times" not in prompt:
         n = 3
-    return prompt, (f"x = 4\nd = 4\nhits = 0\nwhile hits < {n * 2}:\n    clear()\n    circle(x, 32, 4)\n    wait(30)\n"
-                    f"    x = x + d\n    if x > 123 or x < 4:\n        d = -d\n        hits = hits + 1\n")
+    prompt += (" " + sp if sp else "")
+    R = size[1]
+    return prompt, (f"x = {R}\nd = {step}\nhits = 0\nwhile hits < {n * 2}:\n    clear()\n    circle(x, 32, {R})\n    wait(30)\n"
+                    f"    x = x + d\n    if x > {127 - R} or x < {R}:\n        d = -d\n        hits = hits + 1\n")
 
 
 def f_grow(r):
     v = pick(r, VAR)
-    prompt = pick(r, ["grow a circle", "a circle that gets bigger", "make a circle grow from the middle", "animate a growing circle"])
-    return prompt, f"for {v} in range(1, 31, 2):\n    clear()\n    circle(64, 32, {v})\n    wait(60)\n"
+    shrink = r.random() < 0.3
+    top = r.randint(10, 30)
+    sp, ms = pick(r, SPEED)
+    ms = max(30, ms // 4)
+    if shrink:
+        prompt = pick(r, ["shrink a circle", "a circle that gets smaller", "make a circle shrink to the middle"])
+        rng = f"range({top}, 0, -2)"
+    else:
+        prompt = pick(r, ["grow a circle", "a circle that gets bigger", "make a circle grow from the middle", "animate a growing circle"])
+        rng = f"range(1, {top + 1}, 2)"
+    if r.random() < 0.5:
+        prompt += pick(r, [f" up to radius {top}", f" to size {top}"]) if not shrink else f" from radius {top}"
+    else:
+        rng = "range(1, 31, 2)" if not shrink else "range(30, 0, -2)"
+    prompt += (" " + sp if sp else "")
+    return prompt, f"for {v} in {rng}:\n    clear()\n    circle(64, 32, {v})\n    wait({ms})\n"
 
 
 def f_blink(r):
@@ -294,9 +341,15 @@ def f_staircase(r):
 
 
 def f_checker(r):
-    prompt = pick(r, ["draw a checkerboard", "draw a chess board pattern", "checker pattern"])
-    return prompt, ("clear()\nfor y in range(0, 64, 8):\n    for x in range(0, 128, 8):\n"
-                    "        if (x // 8 + y // 8) % 2 == 0:\n            fill(x, y, 8, 8)\n")
+    size = pick(r, [(4, "small"), (8, ""), (16, "big")])
+    base = pick(r, ["draw a checkerboard", "draw a chess board pattern", "checker pattern", "make a checkerboard",
+                    "fill the screen with a checker pattern", "draw black and white squares like a chess board"])
+    prompt = base + (f" with {size[1]} squares" if size[1] else "")
+    if r.random() < 0.3:
+        prompt = base + f" with squares of {size[0]} pixels"
+    q = size[0]
+    return prompt, (f"clear()\nfor y in range(0, 64, {q}):\n    for x in range(0, 128, {q}):\n"
+                    f"        if (x // {q} + y // {q}) % 2 == 0:\n            fill(x, y, {q}, {q})\n")
 
 
 FAMILIES = [f_text, f_two_lines, f_count, f_circle, f_frame, f_box, f_lines, f_stripes, f_grid, f_rings, f_dots,

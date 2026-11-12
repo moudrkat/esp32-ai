@@ -46,6 +46,7 @@ def train_tokenizer(docs, vocab_size, path):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--vocab", type=int, default=2048, help="small: the language has a few dozen words")
+    ap.add_argument("--min-per-family", type=int, default=1500, help="repeat small families in train up to this")
     args = ap.parse_args()
     rows = [json.loads(l) for l in open(SRC)]
     assert all(r["doc"].isascii() for r in rows), "the device encoder takes ASCII only"
@@ -54,7 +55,16 @@ def main():
     held = set(prompts[:max(200, int(len(prompts) * VAL_FRACTION))])
     splits = {"val": [r for r in rows if r["prompt"].lower() in held],
               "train": [r for r in rows if r["prompt"].lower() not in held]}
-    random.Random(SEED).shuffle(splits["train"])
+    # small families (a checkerboard has a few dozen spellings, a word on the screen thousands) are repeated in
+    # train until each has --min-per-family documents, so the model sees every kind of request often enough
+    by_fam = {}
+    for r in splits["train"]:
+        by_fam.setdefault(r["family"], []).append(r)
+    rng = random.Random(SEED)
+    for fam, rs in by_fam.items():
+        while len([x for x in splits["train"] if x["family"] == fam]) < args.min_per_family and rs:
+            splits["train"].extend(rs[:args.min_per_family - len([x for x in splits["train"] if x["family"] == fam])])
+    rng.shuffle(splits["train"])
 
     out = DATA / f"vocab-{args.vocab}"
     out.mkdir(parents=True, exist_ok=True)
