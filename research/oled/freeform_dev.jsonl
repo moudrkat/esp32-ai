@@ -1,0 +1,30 @@
+{"prompt": "show me a circle", "program": "clear()\ncircle(64, 32, 20)\n", "family": "freeform"}
+{"prompt": "draw a big circle", "program": "clear()\ncircle(64, 32, 28)\n", "family": "freeform"}
+{"prompt": "write kate", "program": "clear()\ntext(52, 28, \"kate\")\n", "family": "freeform"}
+{"prompt": "count to 3", "program": "for i in range(1, 4):\n    clear()\n    text(60, 28, str(i))\n    wait(300)\n", "family": "freeform"}
+{"prompt": "countdown 10", "program": "for i in range(10, 0, -1):\n    clear()\n    text(60, 28, str(i))\n    wait(300)\n", "family": "freeform"}
+{"prompt": "I want to see the word pizza", "program": "clear()\ntext(49, 28, \"pizza\")\n", "family": "freeform"}
+{"prompt": "make a square", "program": "clear()\nrect(48, 16, 32, 32)\n", "family": "freeform"}
+{"prompt": "a square in the middle", "program": "clear()\nrect(48, 16, 32, 32)\n", "family": "freeform"}
+{"prompt": "draw a sun", "program": "clear()\ncircle(64, 32, 10)\nline(77, 32, 83, 32)\nline(73, 41, 77, 45)\nline(64, 45, 64, 51)\nline(55, 41, 51, 45)\nline(51, 32, 45, 32)\nline(55, 23, 51, 19)\nline(64, 19, 64, 13)\nline(73, 23, 77, 19)\n", "family": "freeform"}
+{"prompt": "draw a house", "program": "clear()\nrect(44, 32, 40, 20)\nline(44, 32, 64, 12)\nline(64, 12, 84, 32)\nrect(60, 42, 6, 10)\n", "family": "freeform"}
+{"prompt": "draw a heart", "program": "clear()\ncircle(55, 28, 9)\ncircle(73, 28, 9)\nline(46, 28, 64, 50)\nline(82, 28, 64, 50)\n", "family": "freeform"}
+{"prompt": "draw a triangle", "program": "clear()\nline(64, 14, 46, 50)\nline(46, 50, 82, 50)\nline(82, 50, 64, 14)\n", "family": "freeform"}
+{"prompt": "blink the screen", "program": "for i in range(3):\n    fill(0, 0, 128, 64)\n    wait(300)\n    clear()\n    wait(300)\n", "family": "freeform"}
+{"prompt": "say good luck", "program": "clear()\ntext(37, 28, \"good luck\")\n", "family": "freeform"}
+{"prompt": "a dot moving to the right", "program": "for i in range(0, 124, 4):\n    clear()\n    fill(i, 30, 4, 4)\n    wait(100)\n", "family": "freeform"}
+{"prompt": "countdown from 5 then happy birthday", "program": "for i in range(5, 0, -1):\n    clear()\n    text(60, 28, str(i))\n    wait(300)\nclear()\ntext(22, 28, \"happy birthday\")\n", "family": "freeform"}
+{"prompt": "three circles in a row", "program": "clear()\nfor i in range(3):\n    circle(32 + i * 32, 32, 14)\n", "family": "freeform"}
+{"prompt": "fill the whole screen", "program": "clear()\nfill(0, 0, 128, 64)\n", "family": "freeform"}
+{"prompt": "clear the screen", "program": "clear()\n", "family": "freeform"}
+{"prompt": "a small smiley in the corner", "program": "clear()\ncircle(15, 15, 14)\nfill(8, 10, 4, 4)\nfill(18, 10, 4, 4)\nline(8, 22, 12, 26)\nline(12, 26, 18, 26)\nline(18, 26, 22, 22)\n", "family": "freeform"}
+{"prompt": "draw a target", "program": "clear()\nfor i in range(1, 4):\n    circle(64, 32, i * 10)\n", "family": "freeform"}
+{"prompt": "two circles", "program": "clear()\nfor i in range(2):\n    circle(42 + i * 42, 32, 14)\n", "family": "freeform"}
+{"prompt": "write hi at the bottom", "program": "clear()\ntext(58, 56, \"hi\")\n", "family": "freeform"}
+{"prompt": "draw a box around hello", "program": "clear()\ntext(49, 28, \"hello\")\nrect(45, 24, 37, 16)\n", "family": "freeform"}
+{"prompt": "show a loading bar", "program": "clear()\nrect(4, 28, 120, 10)\nfor i in range(0, 117, 4):\n    fill(6, 30, i, 6)\n    wait(60)\n", "family": "freeform"}
+{"prompt": "draw a big X", "program": "clear()\nline(0, 0, 127, 63)\nline(0, 63, 127, 0)\n", "family": "freeform"}
+{"prompt": "draw a pizza", "program": "clear()\ntext(61, 28, \"?\")\n", "family": "freeform"}
+{"prompt": "please write thank you", "program": "clear()\ntext(37, 28, \"thank you\")\n", "family": "freeform"}
+{"prompt": "make a star", "program": "clear()\nline(64, 12, 76, 48)\nline(76, 48, 45, 26)\nline(45, 26, 83, 26)\nline(83, 26, 52, 48)\nline(52, 48, 64, 12)\n", "family": "freeform"}
+{"prompt": "show the number 42", "program": "clear()\ntext(58, 28, \"42\")\n", "family": "freeform"}

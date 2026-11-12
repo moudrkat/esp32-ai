@@ -12,7 +12,10 @@ Writes data/oled/pairs.jsonl: {prompt, program, family, doc}. doc is what the mo
 """
 import argparse
 import json
+import math
 import random
+import re
+import string
 import sys
 from pathlib import Path
 
@@ -28,6 +31,94 @@ NUMWORD = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "s
            10: "ten"}
 SPEED = [("quickly", 100), ("fast", 150), ("", 300), ("slowly", 600), ("very slowly", 1000)]
 VAR = ["i", "n", "k", "x"]
+# everyday words and phrases: these also turn up in requests as filler ("can you", "thank you"), so the model has
+# to see them as things to write, too
+COMMON = ("you me we it is am are be do can will thanks thank please sorry happy sad hungry tired busy free open "
+          "closed back soon later today tonight tomorrow now here there yes nope maybe sure cool nice great super best "
+          "love hug kiss party cake food lunch dinner breakfast pizza beer wine water milk work school home office "
+          "meeting call me baby mom dad kids friend team boss name time day week year birthday luck night morning "
+          "evening hey hello bye goodbye ciao ahoj hola welcome congrats bravo oops help danger warning alarm fire ice "
+          "hot cold warm rain snow wind sunny cloudy north south east west left right up down start end next back menu "
+          "score level game over winner player one two three four five six seven eight nine ten zero").split()
+PHRASES = ["thank you", "good luck", "happy birthday", "see you", "see you soon", "love you", "miss you", "i love you",
+           "well done", "good job", "nice day", "have fun", "be right back", "do not disturb", "game over",
+           "happy new year", "merry christmas", "get well soon", "on my way", "you win", "you lose", "try again",
+           "time for tea", "back in 5", "lunch time", "coffee break", "no signal", "low battery", "out of order",
+           "come in", "keep out", "be quiet", "hello there", "good evening", "good afternoon", "sweet dreams",
+           "all good", "not now", "call me", "wake up", "go home", "let's go", "level up", "high score", "press start"]
+DICT = Path("/usr/share/dict/words")   # any word list; the model must learn to copy words, not remember them
+# shapes the language can draw; anything else asked to be drawn gets an honest "?"
+KNOWN = {"circle", "ring", "rings", "square", "box", "rectangle", "frame", "border", "line", "lines", "dot", "dots",
+         "ball", "grid", "smiley", "face", "target", "triangle", "heart", "house", "sun", "star", "arrow", "stripes",
+         "checkerboard", "staircase", "stairs", "cross", "plus", "x", "bar", "outline", "spiral", "pattern"}
+_dict = None
+
+
+def dict_words():
+    global _dict
+    if _dict is None:
+        try:
+            ws = DICT.read_text(errors="ignore").split()
+        except OSError:
+            ws = []
+        _dict = sorted({w for w in ws if re.fullmatch(r"[a-z]{3,9}", w)}) or WORDS
+    return _dict
+
+
+def word(r):
+    """Something a person might want written: any word, two words, a name, a code, a number."""
+    k = r.random()
+    if k < 0.08:
+        return pick(r, COMMON)
+    if k < 0.14:
+        return pick(r, PHRASES)
+    if k < 0.18:
+        return pick(r, COMMON) + " " + pick(r, COMMON + WORDS)
+    if k < 0.2:
+        return pick(r, WORDS)
+    if k < 0.55:
+        return pick(r, dict_words())
+    if k < 0.7:
+        return pick(r, dict_words()) + " " + pick(r, dict_words())
+    if k < 0.78:
+        return pick(r, dict_words()).capitalize()
+    if k < 0.84:
+        return pick(r, dict_words()).upper()
+    if k < 0.92:
+        return str(r.randint(0, 99999))
+    return "".join(r.choice(string.ascii_lowercase + string.digits) for _ in range(r.randint(2, 8)))
+
+
+def unknown(r):
+    while True:
+        w = pick(r, dict_words())
+        if w not in KNOWN and w.rstrip("s") not in KNOWN:
+            return w
+
+
+def a(w):
+    return ("an " if w[0] in "aeiou" else "a ") + w
+
+
+def spot(r, R):
+    """Where a shape of radius R goes: (phrase, x, y), kept on the screen."""
+    ph, x, y = pick(r, [("", 64, 32), ("", 64, 32), ("in the middle", 64, 32), ("in the center", 64, 32),
+                        ("in the centre", 64, 32), ("on the left", 32, 32), ("on the right", 96, 32),
+                        ("in the corner", 0, 0), ("in the top left corner", 0, 0), ("in the top right corner", 127, 0),
+                        ("in the bottom left corner", 0, 63), ("in the bottom right corner", 127, 63),
+                        ("at the top", 64, 0), ("at the bottom", 64, 63)])
+    x = min(max(x, R + 1), 126 - R)
+    y = min(max(y, R + 1), 62 - R)
+    return ph, x, y
+
+
+def size(r, small, mid, big):
+    return pick(r, [("", mid), ("", mid), ("small ", small), ("little ", small), ("tiny ", max(3, small // 2)),
+                    ("big ", big), ("large ", big), ("huge ", big)])
+
+
+def draw_verb(r):
+    return pick(r, ["draw", "draw", "make", "show", "show me", "put", "display", "i want", "give me", "sketch", "paint"])
 
 
 def pick(r, xs):
@@ -51,20 +142,27 @@ def place(r):
 
 
 def f_text(r):
-    w = pick(r, WORDS)
+    w = word(r)
     where, x, y = place(r)
     x = cx(w) if x == "mid" else x
-    verb = pick(r, ["write", "show", "display", "print", "put"])
-    q = pick(r, ['"', "", ""])
-    prompt = f"{verb} {q}{w}{q}" + (f" {where}" if where else "") + pick(r, ["", " on the screen"])
-    if r.random() < 0.15:
-        prompt = pick(r, [f"say {w}", f"the screen should say {w}", f"{w} on the screen"])
+    q = pick(r, ['"', "'", "", "", ""])
+    the = pick(r, ["", "", "the word ", "the text "]) if " " not in w else pick(r, ["", "the text ", "the words "])
+    verb = pick(r, ["write", "write", "show", "display", "print", "put", "type", "say", "show me", "i want to see",
+                    "can you write", "let me see", "spell", "put up"])
+    prompt = f"{verb} {the}{q}{w}{q}" + (f" {where}" if where else "") + pick(r, ["", "", " on the screen", " on the display"])
+    if w.isdigit() and r.random() < 0.4:
+        prompt = pick(r, [f"show the number {w}", f"write the number {w}", f"display the number {w}", f"the number {w}",
+                          f"show {w}", f"put the number {w} on the screen"])
+        x, y = cx(w), 28
+    elif r.random() < 0.15:
+        prompt = pick(r, [f"the screen should say {q}{w}{q}", f"{q}{w}{q} on the screen", f"make it say {q}{w}{q}",
+                          f"just {q}{w}{q}", f"text: {w}"])
         x, y = cx(w), 28
     return prompt, f'clear()\ntext({x}, {y}, "{w}")\n'
 
 
 def f_two_lines(r):
-    a, b = r.sample(WORDS, 2)
+    a, b = word(r)[:21], word(r)[:21]
     prompt = pick(r, [f"write {a} and under it {b}", f"show {a} on the first line and {b} on the second",
                       f"two lines: {a} and {b}"])
     return prompt, f'clear()\ntext({cx(a)}, 20, "{a}")\ntext({cx(b)}, 36, "{b}")\n'
@@ -76,17 +174,22 @@ def f_count(r):
     sp, ms = pick(r, SPEED)
     v = pick(r, VAR)
     end = r.random() < 0.4
-    fin = pick(r, ["GO", "done", "boom", "end", "ready"])
+    fin = pick(r, ["GO", "done", "boom", "end", "ready"]) if r.random() < 0.5 else word(r)
     if up:
-        prompt = pick(r, [f"count from 1 to {num(r, n)}", f"count to {num(r, n)}", f"count up to {num(r, n)}"])
+        prompt = pick(r, [f"count from 1 to {num(r, n)}", f"count to {num(r, n)}", f"count up to {num(r, n)}",
+                          f"show the numbers 1 to {num(r, n)} one by one", f"count one to {num(r, n)}",
+                          f"numbers from 1 to {num(r, n)}, one after another"])
         rng = f"range(1, {n + 1})"
     else:
-        prompt = pick(r, [f"count down from {num(r, n)}", f"countdown from {num(r, n)}", f"count down from {num(r, n)} to 1"])
+        prompt = pick(r, [f"count down from {num(r, n)}", f"countdown from {num(r, n)}", f"count down from {num(r, n)} to 1",
+                          f"countdown {num(r, n)}", f"a countdown from {num(r, n)}", f"count backwards from {num(r, n)}",
+                          f"do a countdown from {num(r, n)}"])
         rng = f"range({n}, 0, -1)"
     if sp:
         prompt += " " + sp
     if end:
-        prompt += pick(r, [f" then show {fin}", f" and then write {fin}", f", then say {fin}"])
+        prompt += pick(r, [f" then show {fin}", f" and then write {fin}", f", then say {fin}", f" and then {fin}",
+                           f" and end with {fin}", f", then {fin}", f" and finish with {fin}", f" then write {fin}"])
     prog = f"for {v} in {rng}:\n    clear()\n    text(60, 28, str({v}))\n    wait({ms})\n"
     if end:
         prog += f'clear()\ntext({cx(fin)}, 28, "{fin}")\n'
@@ -94,16 +197,156 @@ def f_count(r):
 
 
 def f_circle(r):
-    rad = r.randint(4, 30)
-    where = pick(r, [("in the middle", 64, 32), ("in the center", 64, 32), ("on the left", 32, 32),
-                     ("on the right", 96, 32), ("", 64, 32)])
-    size = pick(r, [(f"with radius {rad}", rad), ("small", 8), ("big", 28), ("", 20)])
-    prompt = pick(r, ["draw", "make", "show"]) + " a " + (size[0] + " " if size[0] and not size[0].startswith("with") else "") + "circle"
-    if size[0].startswith("with"):
-        prompt += " " + size[0]
-    if where[0]:
-        prompt += " " + where[0]
-    return prompt, f"clear()\ncircle({where[1]}, {where[2]}, {size[1]})\n"
+    sz, R = size(r, 8, 20, 28)
+    rad = None
+    if r.random() < 0.25:
+        R = rad = r.randint(4, 30)
+        sz = ""
+    where, x, y = spot(r, R)
+    noun = pick(r, ["circle", "circle", "ring", "round shape"])
+    prompt = f"{draw_verb(r)} a {sz}{noun}" + (pick(r, [f" with radius {rad}", f" of radius {rad}", f", radius {rad}"]) if rad else "")
+    prompt += (" " + where if where else "")
+    return prompt, f"clear()\ncircle({x}, {y}, {R})\n"
+
+
+def f_square(r):
+    sz, R = size(r, 8, 16, 28)
+    if r.random() < 0.2:
+        R = r.randint(3, 30)
+        sz = f"{2 * R} pixel "
+    filled = r.random() < 0.35
+    where, x, y = spot(r, R)
+    noun = pick(r, ["square", "square", "box"])
+    adj = pick(r, ["filled ", "solid ", "full "]) if filled else pick(r, ["", "", "empty ", "hollow "])
+    prompt = f"{draw_verb(r)} a {sz}{adj}{noun}" + (" " + where if where else "")
+    return prompt, f"clear()\n{'fill' if filled else 'rect'}({x - R}, {y - R}, {2 * R}, {2 * R})\n"
+
+
+def tri(x, y, R):
+    return f"line({x}, {y - R}, {x - R}, {y + R})\nline({x - R}, {y + R}, {x + R}, {y + R})\nline({x + R}, {y + R}, {x}, {y - R})\n"
+
+
+def f_triangle(r):
+    sz, R = size(r, 8, 18, 28)
+    where, x, y = spot(r, R)
+    return f"{draw_verb(r)} a {sz}triangle" + (" " + where if where else ""), "clear()\n" + tri(x, y, R)
+
+
+def heart(x, y, s):
+    return (f"circle({x - s}, {y - s // 2}, {s})\ncircle({x + s}, {y - s // 2}, {s})\n"
+            f"line({x - 2 * s}, {y - s // 2}, {x}, {y + 2 * s})\nline({x + 2 * s}, {y - s // 2}, {x}, {y + 2 * s})\n")
+
+
+def f_heart(r):
+    sz, s = size(r, 5, 9, 13)
+    where, x, y = spot(r, 2 * s)
+    y = min(max(y, s + s // 2 + 1), 62 - 2 * s)
+    noun = pick(r, ["heart", "heart", "love heart", "heart shape"])
+    return f"{draw_verb(r)} a {sz}{noun}" + (" " + where if where else ""), "clear()\n" + heart(x, y, s)
+
+
+def house(x, y, s):
+    # body 2s wide, s tall, standing on y + s; roof up to y - s; a door
+    return (f"rect({x - s}, {y}, {2 * s}, {s})\nline({x - s}, {y}, {x}, {y - s})\nline({x}, {y - s}, {x + s}, {y})\n"
+            f"rect({x - s // 5}, {y + s // 2}, {max(2, s // 3)}, {s - s // 2})\n")
+
+
+def f_house(r):
+    sz, s = size(r, 10, 20, 30)
+    where, x, y = spot(r, s)
+    noun = pick(r, ["house", "house", "little house" if not sz else "house", "home", "hut"])
+    return f"{draw_verb(r)} a {sz}{noun}" + (" " + where if where else ""), "clear()\n" + house(x, y, s)
+
+
+def sun(x, y, R):
+    out = f"circle({x}, {y}, {R})\n"
+    for k in range(8):
+        a_ = k * math.pi / 4
+        c, s_ = math.cos(a_), math.sin(a_)
+        out += f"line({x + round(c * (R + 3))}, {y + round(s_ * (R + 3))}, {x + round(c * (R + 9))}, {y + round(s_ * (R + 9))})\n"
+    return out
+
+
+def f_sun(r):
+    sz, R = size(r, 5, 10, 14)
+    where, x, y = spot(r, R + 9)
+    noun = pick(r, ["sun", "sun", "shining sun", "sun with rays"])
+    return f"{draw_verb(r)} a {sz}{noun}" + (" " + where if where else ""), "clear()\n" + sun(x, y, R)
+
+
+def star(x, y, R):
+    pts = [(x + round(R * math.sin(k * 4 * math.pi / 5)), y - round(R * math.cos(k * 4 * math.pi / 5))) for k in range(5)]
+    return "".join(f"line({pts[k][0]}, {pts[k][1]}, {pts[(k + 1) % 5][0]}, {pts[(k + 1) % 5][1]})\n" for k in range(5))
+
+
+def f_star(r):
+    sz, R = size(r, 9, 20, 30)
+    where, x, y = spot(r, R)
+    return f"{draw_verb(r)} a {sz}star" + (" " + where if where else ""), "clear()\n" + star(x, y, R)
+
+
+def f_arrow(r):
+    d = pick(r, ["right", "left", "up", "down"])
+    ph = pick(r, [f"draw an arrow pointing {d}", f"an arrow to the {d}" if d in ("left", "right") else f"an arrow pointing {d}",
+                  f"show an arrow {d}", f"make a {d} arrow", f"point {d}", f"draw a {d} arrow"])
+    prog = {"right": "line(20, 32, 108, 32)\nline(108, 32, 92, 20)\nline(108, 32, 92, 44)\n",
+            "left": "line(20, 32, 108, 32)\nline(20, 32, 36, 20)\nline(20, 32, 36, 44)\n",
+            "up": "line(64, 4, 64, 60)\nline(64, 4, 52, 18)\nline(64, 4, 76, 18)\n",
+            "down": "line(64, 4, 64, 60)\nline(64, 60, 52, 46)\nline(64, 60, 76, 46)\n"}[d]
+    return ph, "clear()\n" + prog
+
+
+def f_fill_screen(r):
+    return pick(r, ["fill the screen", "fill the whole screen", "make the screen all white", "turn on all the pixels",
+                    "light up the whole screen", "fill the display", "make everything white", "all pixels on",
+                    "paint the whole screen", "fill it all in", "light the screen up", "make the screen bright"]), \
+        "clear()\nfill(0, 0, 128, 64)\n"
+
+
+def f_clear_screen(r):
+    return pick(r, ["clear the screen", "clear the display", "blank the screen", "erase everything", "wipe the screen",
+                    "turn the screen off", "make the screen black", "clear it", "empty the screen", "clean the screen",
+                    "nothing", "show nothing", "reset the screen", "all pixels off"]), "clear()\n"
+
+
+def f_blink_screen(r):
+    n = r.randint(2, 6)
+    sp, ms = pick(r, SPEED)
+    v = pick(r, VAR)
+    prompt = pick(r, [f"blink the screen {num(r, n)} times", f"flash the screen {num(r, n)} times",
+                      f"flash the display {num(r, n)} times", f"make the screen blink {num(r, n)} times",
+                      "blink the screen", "flash the screen", "make the screen flash"])
+    if "times" not in prompt:
+        n = 3
+    prompt += (" " + sp if sp else "")
+    return prompt, f"for {v} in range({n}):\n    fill(0, 0, 128, 64)\n    wait({ms})\n    clear()\n    wait({ms})\n"
+
+
+def f_row(r):
+    n = r.randint(2, 6)
+    v = pick(r, VAR)
+    gap = W // (n + 1)
+    R = min(gap // 2 - 2, 14)
+    kind = pick(r, ["circles", "squares", "boxes", "rings", "triangles"])
+    prompt = pick(r, [f"draw {num(r, n)} {kind} in a row", f"{num(r, n)} {kind} next to each other",
+                      f"{num(r, n)} {kind} side by side", f"put {num(r, n)} {kind} in a line", f"{num(r, n)} {kind}",
+                      f"draw {num(r, n)} {kind}", f"show {num(r, n)} {kind}"])
+    if kind in ("circles", "rings"):
+        body = f"    circle({gap} + {v} * {gap}, 32, {R})\n"
+    elif kind == "triangles":
+        body = (f"    x = {gap} + {v} * {gap}\n    line(x, {32 - R}, x - {R}, {32 + R})\n    line(x - {R}, {32 + R}, x + {R}, {32 + R})\n"
+                f"    line(x + {R}, {32 + R}, x, {32 - R})\n")
+    else:
+        body = f"    rect({gap} + {v} * {gap} - {R}, {32 - R}, {2 * R}, {2 * R})\n"
+    return prompt, f"clear()\nfor {v} in range({n}):\n{body}"
+
+
+def f_unknown(r):
+    w = unknown(r)
+    prompt = pick(r, [f"draw {a(w)}", f"draw me {a(w)}", f"make a picture of {a(w)}", f"a picture of {a(w)}",
+                      f"can you draw {a(w)}", f"paint {a(w)}", f"sketch {a(w)}", f"draw a {w}", f"show me a picture of {w}",
+                      f"draw some {w}", f"i want a drawing of {a(w)}"])
+    return prompt, 'clear()\ntext(61, 28, "?")\n'
 
 
 def f_frame(r):
@@ -177,7 +420,10 @@ def f_grid(r):
 def f_rings(r):
     n = r.randint(2, 6)
     v = pick(r, VAR)
-    prompt = pick(r, [f"draw {num(r, n)} circles inside each other", f"{num(r, n)} rings in the middle", f"draw a target with {num(r, n)} rings"])
+    prompt = pick(r, [f"draw {num(r, n)} circles inside each other", f"{num(r, n)} rings in the middle", f"draw a target with {num(r, n)} rings",
+                      "draw a target", "make a target", "a bullseye", "draw circles inside each other", "concentric circles"])
+    if not any(c.isdigit() for c in prompt) and not any(t in prompt for t in NUMWORD.values()):
+        n = 3
     step = 30 // n
     return prompt, f"clear()\nfor {v} in range(1, {n + 1}):\n    circle(64, 32, {v} * {step})\n"
 
@@ -191,23 +437,18 @@ def f_dots(r):
 
 
 def f_smiley(r):
-    where = pick(r, [("", 64), (" in the middle", 64), (" on the left", 32), (" on the right", 96)])
-    size = pick(r, [("", 24), (" small", 14), (" big", 30)])
+    sz, R = pick(r, [("", 24), ("", 24), ("small ", 14), ("little ", 14), ("tiny ", 10), ("big ", 30)])
+    where, c, yc = spot(r, R)
     sad = r.random() < 0.25
-    face = "sad face" if sad else pick(r, ["smiley", "smiley face", "happy face", "face"])
-    prompt = pick(r, ["draw a", "make a", "show a", "put a"]) + size[0] + " " + face + where[0]
-    c, R = where[1], size[1]
+    face = pick(r, ["sad face", "sad smiley", "frowning face"]) if sad else pick(r, ["smiley", "smiley face", "happy face", "face", "smile", "smiling face"])
+    prompt = f"{draw_verb(r)} a {sz}{face}" + (" " + where if where else "")
     e = R * 2 // 5
     m = R // 2
-    if R + c > 127:
-        c = 127 - R
-    if c - R < 0:
-        c = R
-    prog = f"clear()\ncircle({c}, 32, {R})\nfill({c - e - 2}, {32 - e}, 4, 4)\nfill({c + e - 2}, {32 - e}, 4, 4)\n"
+    prog = f"clear()\ncircle({c}, {yc}, {R})\nfill({c - e - 2}, {yc - e}, 4, 4)\nfill({c + e - 2}, {yc - e}, 4, 4)\n"
     if sad:
-        prog += f"line({c - m}, {32 + m + 4}, {c - m + 4}, {32 + m})\nline({c - m + 4}, {32 + m}, {c + m - 4}, {32 + m})\nline({c + m - 4}, {32 + m}, {c + m}, {32 + m + 4})\n"
+        prog += f"line({c - m}, {yc + m + 4}, {c - m + 4}, {yc + m})\nline({c - m + 4}, {yc + m}, {c + m - 4}, {yc + m})\nline({c + m - 4}, {yc + m}, {c + m}, {yc + m + 4})\n"
     else:
-        prog += f"line({c - m}, {32 + m}, {c - m + 4}, {32 + m + 4})\nline({c - m + 4}, {32 + m + 4}, {c + m - 4}, {32 + m + 4})\nline({c + m - 4}, {32 + m + 4}, {c + m}, {32 + m})\n"
+        prog += f"line({c - m}, {yc + m}, {c - m + 4}, {yc + m + 4})\nline({c - m + 4}, {yc + m + 4}, {c + m - 4}, {yc + m + 4})\nline({c + m - 4}, {yc + m + 4}, {c + m}, {yc + m})\n"
     return prompt, prog
 
 
@@ -218,8 +459,11 @@ def f_move(r):
     what = pick(r, [("dot", "fill({v}, 30, 4, 4)"), ("ball", "circle({v}, 32, 4)"), ("square", "fill({v}, 26, 12, 12)")])
     direction = pick(r, ["left to right", "right to left"])
     rng = "range(0, 124, 4)" if direction == "left to right" else "range(124, 0, -4)"
+    to = direction.split()[-1]
     prompt = pick(r, [f"move a {what[0]} from {direction}", f"animate a {what[0]} going from {direction}",
-                      f"a {what[0]} that slides from {direction}"]) + (" " + sp if sp else "")
+                      f"a {what[0]} that slides from {direction}", f"a {what[0]} moving to the {to}",
+                      f"move a {what[0]} to the {to}", f"a {what[0]} going {to}", f"slide a {what[0]} to the {to}",
+                      f"make a {what[0]} move {to}", f"a moving {what[0]} going {to}"]) + (" " + sp if sp else "")
     return prompt, f"for {v} in {rng}:\n    clear()\n    {what[1].format(v=v)}\n    wait({ms})\n"
 
 
@@ -228,7 +472,8 @@ def f_bounce(r):
     size = pick(r, [("", 4), ("small ", 2), ("big ", 8)])
     sp, ms = pick(r, SPEED)
     step = {100: 8, 150: 6, 300: 4, 600: 2, 1000: 1}[ms]
-    prompt = pick(r, [f"bounce a {size[0]}ball", f"bounce a {size[0]}ball {num(r, n)} times",
+    prompt = pick(r, [f"bounce a {size[0]}ball", f"bounce a {size[0]}ball {num(r, n)} times", f"a bouncing {size[0]}ball",
+                      f"animate a bouncing {size[0]}ball", f"a {size[0]}ball that bounces", f"bouncing {size[0]}ball",
                       f"a {size[0]}ball bouncing left and right", f"a {size[0]}ball bouncing between the walls {num(r, n)} times"])
     if "times" not in prompt:
         n = 3
@@ -259,11 +504,12 @@ def f_grow(r):
 
 
 def f_blink(r):
-    w = pick(r, WORDS)
+    w = word(r)[:21]
     n = r.randint(2, 6)
     sp, ms = pick(r, SPEED)
     v = pick(r, VAR)
-    prompt = pick(r, [f"blink {w} {num(r, n)} times", f"flash {w} {num(r, n)} times", f"make {w} blink {num(r, n)} times"]) + (" " + sp if sp else "")
+    prompt = pick(r, [f"blink {w} {num(r, n)} times", f"flash {w} {num(r, n)} times", f"make {w} blink {num(r, n)} times",
+                      f"make the word {w} blink {num(r, n)} times", f"blink the text {w} {num(r, n)} times"]) + (" " + sp if sp else "")
     return prompt, f'for {v} in range({n}):\n    clear()\n    text({cx(w)}, 28, "{w}")\n    wait({ms})\n    clear()\n    wait({ms})\n'
 
 
@@ -281,21 +527,23 @@ def f_progress(r):
 
 
 def f_scroll(r):
-    w = pick(r, WORDS)
+    w = word(r)
     v = pick(r, VAR)
-    prompt = pick(r, [f"scroll {w} across the screen", f"make {w} move from right to left", f"slide {w} across"])
+    prompt = pick(r, [f"scroll {w} across the screen", f"make {w} move from right to left", f"slide {w} across",
+                      f"scroll the text {w}", f"scrolling text {w}", f"{w} scrolling across", f"let {w} run across the screen"])
     return prompt, f'for {v} in range(128, -{CW * len(w)}, -4):\n    clear()\n    text({v}, 28, "{w}")\n    wait(40)\n'
 
 
 def f_boxed_word(r):
-    w = pick(r, WORDS)
+    w = word(r)[:19]
     x = cx(w)
-    prompt = pick(r, [f"write {w} in a box", f"write {w} and draw a box around it", f"{w} with a frame around it"])
+    prompt = pick(r, [f"write {w} in a box", f"write {w} and draw a box around it", f"{w} with a frame around it",
+                      f"draw a box around {w}", f"put {w} in a box", f"{w} in a frame", f"a box with {w} inside"])
     return prompt, f'clear()\ntext({x}, 28, "{w}")\nrect({x - 4}, 24, {CW * len(w) + 7}, 16)\n'
 
 
 def f_circle_word(r):
-    w = pick(r, WORDS)
+    w = word(r)[:21]
     prompt = pick(r, [f"draw a circle and write {w} under it", f"a circle with {w} below it"])
     return prompt, f'clear()\ncircle(64, 22, 16)\ntext({cx(w)}, 48, "{w}")\n'
 
@@ -354,7 +602,25 @@ def f_checker(r):
 
 FAMILIES = [f_text, f_two_lines, f_count, f_circle, f_frame, f_box, f_lines, f_stripes, f_grid, f_rings, f_dots,
             f_smiley, f_move, f_bounce, f_grow, f_blink, f_progress, f_scroll, f_boxed_word, f_circle_word,
-            f_count_then_shape, f_numbers_list, f_squares, f_even_numbers, f_staircase, f_checker]
+            f_count_then_shape, f_numbers_list, f_squares, f_even_numbers, f_staircase, f_checker,
+            f_square, f_triangle, f_heart, f_house, f_sun, f_star, f_arrow, f_fill_screen, f_clear_screen,
+            f_blink_screen, f_row, f_unknown]
+# how often each family is drawn: open-ended ones (any word, any shape) need many more examples to learn copying
+WEIGHT = {"text": 6, "unknown": 3, "blink": 2, "scroll": 2, "boxed_word": 2, "circle_word": 2, "two_lines": 2, "count": 3,
+          "circle": 2, "square": 2, "smiley": 2}
+POLITE_PRE = ["please ", "can you ", "could you ", "now ", "hey, ", "ok ", "i want you to ", "go ahead and ", "pls ",
+              "would you ", "let's "]
+POLITE_POST = [" please", " for me", " now", ".", "!", " on the screen", " on the display", " on the oled", " thanks"]
+
+
+def polite(r, prompt):
+    if r.random() < 0.25:
+        prompt = pick(r, POLITE_PRE) + prompt
+    if r.random() < 0.25:
+        post = pick(r, POLITE_POST)
+        if not ("screen" in prompt and "screen" in post or "display" in prompt and "display" in post):
+            prompt += post
+    return prompt
 
 
 def main():
@@ -365,10 +631,10 @@ def main():
     r = random.Random(args.seed)
     seen, rows, bad = set(), [], {}
     for _ in range(args.n):
-        fam = pick(r, FAMILIES)
+        fam = r.choices(FAMILIES, weights=[WEIGHT.get(f.__name__[2:], 1) for f in FAMILIES])[0]
         prompt, prog = fam(r)
-        prompt = " ".join(prompt.split())
-        if r.random() < 0.3:
+        prompt = " ".join(polite(r, prompt).split())
+        if r.random() < 0.3 and prompt.split()[0].strip("\"'") not in prog:   # never change a word to be copied
             prompt = prompt[0].upper() + prompt[1:]
         key = (prompt, prog)
         if key in seen:
@@ -376,7 +642,7 @@ def main():
         seen.add(key)
         try:
             s = run(prog)
-            assert any(sum(f) for _, f in s.frames), "nothing drawn"
+            assert fam is f_clear_screen or any(sum(f) for _, f in s.frames), "nothing drawn"
         except (LangError, AssertionError) as e:
             bad[fam.__name__] = bad.get(fam.__name__, 0) + 1
             continue
