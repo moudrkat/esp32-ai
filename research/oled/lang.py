@@ -23,6 +23,8 @@ W, H = 128, 64
 CW, CH = 6, 8
 MAX_STEPS = 20_000
 MAX_WAIT_MS = 30_000
+MAX_STR = 127          # characters in one string (the chip keeps each variable in a fixed buffer)
+MAX_VARS = 24
 DRAW = {"clear": 0, "text": 3, "pixel": 2, "line": 4, "rect": 4, "fill": 4, "circle": 3, "wait": 1}
 PURE = {"str": str, "abs": abs, "min": min, "max": max}
 
@@ -136,8 +138,10 @@ def check(src):
             if not (isinstance(node.target, ast.Name) and isinstance(node.iter, ast.Call)
                     and isinstance(node.iter.func, ast.Name) and node.iter.func.id == "range") or node.orelse:
                 raise LangError("for only as: for i in range(...)")
-        if isinstance(node, (ast.Assign,)) and not all(isinstance(t, ast.Name) for t in node.targets):
+        if isinstance(node, (ast.Assign,)) and (len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name)):
             raise LangError("assign to names only")
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and (len(node.value) > MAX_STR or "\\" in node.value):
+            raise LangError("string too long" if len(node.value) > MAX_STR else "no escapes in strings")
     return tree
 
 
@@ -148,6 +152,13 @@ class _Continue(Exception): pass
 class Machine:
     def __init__(self):
         self.screen, self.vars, self.steps = Screen(), {}, 0
+
+    def setvar(self, name, v):
+        if name not in self.vars and len(self.vars) >= MAX_VARS:
+            raise LangError("too many variables")
+        if isinstance(v, bool):
+            v = int(v)                  # the chip has no booleans: a comparison is 1 or 0
+        self.vars[name] = v
 
     def tick(self):
         self.steps += 1
@@ -165,11 +176,14 @@ class Machine:
         if isinstance(n, ast.BinOp):
             a, b = self.ev(n.left), self.ev(n.right)
             try:
-                if isinstance(n.op, ast.Add): return a + b
+                if isinstance(n.op, ast.Add):
+                    r = a + b
+                    if isinstance(r, str) and len(r) > MAX_STR: raise LangError("string too long")
+                    return r
                 if isinstance(n.op, ast.Sub): return a - b
                 if isinstance(n.op, ast.Mult):
                     r = a * b
-                    if isinstance(r, str) and len(r) > 200: raise LangError("string too long")
+                    if isinstance(r, str) and len(r) > MAX_STR: raise LangError("string too long")
                     return r
                 if isinstance(n.op, ast.FloorDiv): return a // b
                 if isinstance(n.op, ast.Mod): return a % b
@@ -177,7 +191,11 @@ class Machine:
                 raise LangError(str(e))
         if isinstance(n, ast.UnaryOp):
             v = self.ev(n.operand)
-            return -v if isinstance(n.op, ast.USub) else (not v)
+            if isinstance(n.op, ast.USub):
+                if isinstance(v, str):
+                    raise LangError("bad operand for unary -")
+                return -v
+            return int(not v)
         if isinstance(n, ast.BoolOp):
             vals = n.values
             if isinstance(n.op, ast.And):
@@ -201,9 +219,9 @@ class Machine:
                         ok = {ast.Lt: left < r, ast.LtE: left <= r, ast.Gt: left > r, ast.GtE: left >= r}[type(op)]
                     except TypeError as e:
                         raise LangError(str(e))
-                if not ok: return False
+                if not ok: return 0
                 left = r
-            return True
+            return 1
         if isinstance(n, ast.Call):
             f, args = n.func.id, [self.ev(a) for a in n.args]
             if f in PURE:
@@ -232,10 +250,10 @@ class Machine:
         elif isinstance(s, ast.Assign):
             v = self.ev(s.value)
             for t in s.targets:
-                self.vars[t.id] = v
+                self.setvar(t.id, v)
         elif isinstance(s, ast.AugAssign):
             fake = ast.BinOp(left=ast.Name(id=s.target.id, ctx=ast.Load()), op=s.op, right=s.value)
-            self.vars[s.target.id] = self.ev(fake)
+            self.setvar(s.target.id, self.ev(fake))
         elif isinstance(s, ast.If):
             self.run_block(s.body if self.ev(s.test) else s.orelse)
         elif isinstance(s, ast.For):
@@ -243,7 +261,7 @@ class Machine:
             if not all(isinstance(a, int) for a in args):
                 raise LangError("range takes whole numbers")
             for i in range(*args):
-                self.vars[s.target.id] = i
+                self.setvar(s.target.id, i)
                 try:
                     self.run_block(s.body)
                 except _Break:
