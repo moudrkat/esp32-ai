@@ -49,6 +49,12 @@ runs itself can be checked: the program draws the right picture or it does not.
 Close relatives: [llmOS](https://huggingface.co/DibaAi/llmOS) (a sentence -> an automation rule on an ESP32-S3)
 and [esp32-gpio-llm](https://github.com/manjunathshiva/esp32-gpio-llm) (a sentence -> one GPIO command).
 
+## PRs welcome
+
+New shapes and animations (a family in [`research/oled/gen.py`](research/oled/gen.py)), pins and buttons in the
+language ([`lang.py`](research/oled/lang.py) and [`runtime/oled_lang.h`](runtime/oled_lang.h)), or your own
+sentences as an issue: how many of them the chip gets right is the number that matters.
+
 ---
 
 # Running a 28.9M parameter LLM on a microcontroller
