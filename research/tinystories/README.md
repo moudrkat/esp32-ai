@@ -64,6 +64,13 @@ uv run python -m research.tinystories.train --arm ple --vocab 4096 \
 
 Checkpoints and per-run JSON records go to `runs/` at the repository root.
 
+Three flags exist for corpora other than TinyStories (see
+[`research/oled/`](../oled/) for one): `train.py
+--data-dir` points at another dataset root holding `vocab-N/`, `train.py
+--save-best` also keeps the checkpoint at the lowest validation loss as
+`<name>-best.pt`, and `export.py --out` writes the artifact somewhere other than
+`artifacts/tinystories/`.
+
 Three scripts run the published configurations. Each derives the repository
 root itself, so they work from any directory, and each fails immediately if a
 run fails - a partial ablation is not a result.

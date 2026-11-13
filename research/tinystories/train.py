@@ -93,6 +93,15 @@ def main():
     ap.add_argument("--vocab", type=int, default=32768)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--tag", default="")
+    # Another corpus prepared in the same layout (tokenizer.json, train.bin,
+    # val.bin under vocab-N/) trains with the same code; only the root moves.
+    ap.add_argument("--data-dir", default=str(DATA),
+                    help="dataset root holding vocab-N/; default data/tinystories")
+    # A small corpus is overtrained many epochs over; the final step is then
+    # rarely the best one. The checkpoint at the lowest val loss is kept beside
+    # the final one so the exporter can pick either.
+    ap.add_argument("--save-best", action="store_true",
+                    help="also write runs/<name>-best.pt at the lowest val loss")
     args = ap.parse_args()
 
     # Before anything expensive: the tokenizer that produced these bins. Its
@@ -103,7 +112,7 @@ def main():
         raise SystemExit(f"--vocab must be 1..65536; the token bins are uint16 "
                          f"and are memmapped as uint16")
 
-    dataset = variant_dir(args.vocab)
+    dataset = Path(args.data_dir) / f"vocab-{args.vocab}"
     tok_path = dataset / "tokenizer.json"
     if not os.path.exists(tok_path):
         raise SystemExit(
@@ -153,6 +162,12 @@ def main():
 
         if step % args.eval_every == 0 or step == args.steps - 1:
             vl = evaluate(model, val_b, args.eval_iters)
+            if args.save_best and vl < best:
+                torch.save({"cfg": cfg.__dict__, "state": model.state_dict(),
+                            "tokenizer_sha256": tok_sha, "seed": args.seed,
+                            "tag": args.tag, "name": name + "-best", "best_step": step,
+                            "best_val": vl, "training": None},
+                           os.path.join(RUNS, f"{name}-best.pt"))
             best = min(best, vl)
             tok = (step + 1) * args.batch_size * args.seq_len
             history.append({"step": step, "tokens": tok, "train": loss.item(), "val": vl})

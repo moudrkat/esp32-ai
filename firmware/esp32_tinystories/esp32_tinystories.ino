@@ -29,6 +29,20 @@
 #include "../../runtime/bpe_tokenizer.h"
 #include "generated/vocab.h"
 #include "generated/tokenizer_encoder.h"
+// deploy.sh writes this per model: how a typed line is wrapped before it is
+// encoded (the oled model wants "# <request>\n") and the idle text.
+#if __has_include("generated/prompt_format.h")
+#include "generated/prompt_format.h"
+#endif
+#ifndef PROMPT_PREFIX
+#define PROMPT_PREFIX ""
+#endif
+#ifndef PROMPT_SUFFIX
+#define PROMPT_SUFFIX ""
+#endif
+#ifndef IDLE_TEXT
+#define IDLE_TEXT "ESP32-S3 PLE TinyLM\n28.9M params\n\nwaiting for a\nstory prompt..."
+#endif
 
 // Set to 1 once a display is wired up - see display.h.
 // Leave 0 to run serial-only (no panel needed).
@@ -37,9 +51,30 @@
 #include "display.h"
 #endif
 
+// OLED_PROGRAM (set by deploy.sh for the oled model): the model writes a small program for this screen, in the
+// language of runtime/oled_lang.h, and the board runs it. The typed request becomes "# <request>\n", the code
+// appears on the panel as it is written, and when the model ends the document the panel runs it.
+#if defined(OLED_PROGRAM)
+#if !USE_DISPLAY
+#error "OLED_PROGRAM needs the display"
+#endif
+#include "../../runtime/oled_lang.h"
+static ol_machine *olm;                 // ~45 KB, in PSRAM
+static char program[OL_MAX_SRC];
+static int program_len = 0;
+static bool collecting = false;         // true after the prompt: only the model's own tokens are the program
+#endif
+
 static const int PROMPT_IDS[] = {433, 447, 259, 405}; // "Once upon a time"
+#if defined(OLED_PROGRAM)
+static const int N_GENERATE = 240;   // a program, up to the context
+#else
 static const int N_GENERATE = 200;
+#endif
 static BpeTokenizer tokenizer;   // encodes serial prompts on the device itself
+// The end-of-text id, found in the decode table at boot (-1 when absent). A
+// story or an answer stops there instead of running into the next document.
+static int eot_id = -1;
 
 // --- serial prompt intake ---------------------------------------------------
 // Polled between decode steps as well as when idle, so the CDC FIFO is drained
@@ -200,7 +235,54 @@ static void emit(int tok) {
 #if USE_DISPLAY
   display_puts(bytes, len);
 #endif
+#if defined(OLED_PROGRAM)
+  if (collecting && program_len + len < OL_MAX_SRC) { memcpy(program + program_len, bytes, len); program_len += len; }
+#endif
 }
+
+#if defined(OLED_PROGRAM)
+// Drawing for the interpreter: Adafruit GFX on the panel, white on black, 6x8 text cells.
+static void g_clear(void *) { oled.clearDisplay(); }
+static void g_text(void *, int x, int y, const char *s) { oled.setTextSize(1); oled.setCursor(x, y); oled.print(s); }
+static void g_pixel(void *, int x, int y) { oled.drawPixel(x, y, OLED_WHITE); }
+static void g_line(void *, int x0, int y0, int x1, int y1) { oled.drawLine(x0, y0, x1, y1, OLED_WHITE); }
+static void g_rect(void *, int x, int y, int w, int h) { if (w > 0 && h > 0) oled.drawRect(x, y, w, h, OLED_WHITE); }
+static void g_fill(void *, int x, int y, int w, int h) { if (w > 0 && h > 0) oled.fillRect(x, y, w, h, OLED_WHITE); }
+static void g_circle(void *, int x, int y, int r) { if (r >= 0) oled.drawCircle(x, y, r, OLED_WHITE); }
+static bool poll_serial_line();
+static void g_wait(void *, int ms) {
+  oled.display();
+  // pause in short slices so a new request interrupts a long animation within ~20 ms
+  for (int left = ms; left > 0; left -= 20) {
+    delay(left < 20 ? left : 20);
+    if (poll_serial_line()) { olm->stop = 1; return; }
+  }
+}
+static void g_done(void *) { oled.display(); }
+
+static void run_program() {
+  program[program_len] = 0;
+  ol_io io = {nullptr, g_clear, g_text, g_pixel, g_line, g_rect, g_fill, g_circle, g_wait, g_done};
+  delay(700);                              // the written code stays a moment before it runs
+  oled.clearDisplay();
+  int64_t t0 = esp_timer_get_time();
+  int rc = ol_parse(olm, program);
+  if (rc == 0) rc = ol_run(olm, &io);
+  else oled.display();
+  if (rc != 0) {
+    Serial.printf("\n[program refused: %s]\n", olm->err);
+    if (strcmp(olm->err, "interrupted")) {  // a refused program says why, in place of the picture
+      display_home();
+      const char head[] = "can't run this:\n";
+      display_puts((const unsigned char *)head, sizeof(head) - 1);
+      display_puts((const unsigned char *)olm->err, strlen(olm->err));
+      oled.display();
+    }
+  } else {
+    Serial.printf("\n[program ran: %ld steps, %.1f s]\n", olm->steps, (esp_timer_get_time() - t0) / 1e6);
+  }
+}
+#endif
 
 void setup() {
   Serial.begin(115200);
@@ -282,6 +364,9 @@ void setup() {
                 heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024.0,
                 heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1048576.0);
 
+#if defined(OLED_PROGRAM)
+  olm = (ol_machine *)ps_or_die(sizeof(ol_machine), "oled interpreter");
+#endif
   if (bpe_tokenizer_load(TOKENIZER_ENCODER_ASSET, TOKENIZER_ENCODER_ASSET_SIZE,
                          &tokenizer)) {
     Serial.println("tokenizer load failed; serial prompts disabled");
@@ -291,11 +376,23 @@ void setup() {
   // speaks only when spoken to.
 #if USE_DISPLAY
   {
-    const char idle[] = "ESP32-S3 PLE TinyLM\n28.9M params\n\nwaiting for a\nstory prompt...";
+    const char idle[] = IDLE_TEXT;
     display_puts((const unsigned char *)idle, (int)sizeof(idle) - 1);
   }
 #endif
+  {
+    static const char eot[] = "<|endoftext|>";
+    const int n = (int)sizeof(eot) - 1;
+    for (int v = 0; v < VOCAB_N; v++)
+      if (VOCAB_OFF[v + 1] - VOCAB_OFF[v] == n &&
+          memcmp(VOCAB_BLOB + VOCAB_OFF[v], eot, (size_t)n) == 0) { eot_id = v; break; }
+    Serial.printf("eot id: %d\n", eot_id);
+  }
+#if defined(OLED_PROGRAM)
+  Serial.println("ready; type what to draw, then newline");
+#else
   Serial.println("ready; send a story opening followed by newline");
+#endif
 }
 
 // Tell one story: prime the prompt, decode until N_GENERATE or the context
@@ -319,6 +416,10 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
   }
 
   llm_profile_reset(&s);
+#if defined(OLED_PROGRAM)
+  program_len = 0;
+  collecting = true;
+#endif
 
   int64_t t_start = esp_timer_get_time();
   for (int step = 0; step < N_GENERATE && pos < model.c.seq_len; step++) {
@@ -342,6 +443,7 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
       best = pick;
     }
     tok = best;
+    if (tok == eot_id) break;       // the document ended; do not start another
     emit(tok);
     blink((step & 1) ? 40 : 8);
 
@@ -353,6 +455,9 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
     if (poll_serial_line()) {       // a new prompt interrupts this story
       Serial.println("\n(interrupted by a new prompt)");
       blink(0);
+#if defined(OLED_PROGRAM)
+      collecting = false;
+#endif
       return;
     }
   }
@@ -368,6 +473,12 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
                   s.profile.ffn_us / n, s.profile.ple_us / n,
                   s.profile.head_us / n);
   }
+#if defined(OLED_PROGRAM)
+  collecting = false;
+  blink(0);
+  run_program();                    // the picture stays until the next request
+  return;
+#endif
 #if USE_DISPLAY
   display_stats(decoded * 1e6f / decode_us, decode_us / 1000.0f / decoded);
 #endif
@@ -380,8 +491,10 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
 // panel is writing. Room is reserved for the answer: a long prompt cannot
 // eat the whole context.
 static void prompt_story(const char *text) {
+  char wrapped[320];
+  snprintf(wrapped, sizeof(wrapped), "%s%s%s", PROMPT_PREFIX, text, PROMPT_SUFFIX);
   uint16_t enc[96];
-  int n = bpe_encode_ascii(&tokenizer, text, enc, (int)(sizeof(enc) / sizeof(enc[0])));
+  int n = bpe_encode_ascii(&tokenizer, wrapped, enc, (int)(sizeof(enc) / sizeof(enc[0])));
   if (n <= 0) { Serial.println("(ascii only, or prompt too long)"); return; }
   int ids[96];
   for (int i = 0; i < n; i++) ids[i] = enc[i];

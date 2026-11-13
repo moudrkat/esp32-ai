@@ -129,11 +129,20 @@ def check_encoding_contract(config):
             raise SystemExit(
                 f"{field} is configured; the device encoder applies none"
             )
-    if config.get("added_tokens"):
-        raise SystemExit(
-            f"{len(config['added_tokens'])} added tokens are configured; the "
-            f"asset carries no table for them"
-        )
+    # An added token the device cannot reach is refused. A special token that is
+    # also a vocabulary entry under the same id (the end-of-text marker of the
+    # TinyStories tokenizer and the ones trained like it) is harmless: the model can emit it,
+    # and the only text the device would encode differently from Python is the
+    # marker's own literal spelling, which nobody types.
+    vocab = model.get("vocab") or {}
+    for added in config.get("added_tokens") or []:
+        content = added.get("content") if isinstance(added, dict) else None
+        if not (isinstance(added, dict) and added.get("special")
+                and content in vocab and vocab[content] == added.get("id")):
+            raise SystemExit(
+                f"{len(config['added_tokens'])} added tokens are configured; the "
+                f"asset carries no table for them"
+            )
 
     pre = config.get("pre_tokenizer")
     if not isinstance(pre, dict) or pre.get("type") != "ByteLevel":

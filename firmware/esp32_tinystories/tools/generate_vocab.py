@@ -19,6 +19,20 @@ DEFAULT_OUT = SKETCH / "generated" / "vocab.h"
 PROMPT = "Once upon a time"
 
 
+def bytes_to_unicode():
+    """The GPT-2 / Hugging Face ByteLevel reversible byte to unicode mapping."""
+    visible = list(range(0x21, 0x7E + 1))
+    visible += list(range(0xA1, 0xAC + 1))
+    visible += list(range(0xAE, 0xFF + 1))
+    bs, cs, extra = visible[:], visible[:], 0
+    for byte in range(256):
+        if byte not in bs:
+            bs.append(byte)
+            cs.append(256 + extra)
+            extra += 1
+    return dict(zip(bs, (chr(codepoint) for codepoint in cs)))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--tokenizer", default=DEFAULT_TOK,
@@ -30,13 +44,22 @@ def main():
     tok = Tokenizer.from_file(str(TOK))  # rejects PathLike
     V = tok.get_vocab_size()
 
-    # Raw bytes per token: decode single-id sequences. For the ASCII TinyStories
-    # domain this reconstructs text exactly when pieces are concatenated.
+    # Raw bytes per token, through the ByteLevel symbol map rather than
+    # decode(): a token may hold part of a multi-byte character, and decoding
+    # such a piece on its own yields U+FFFD instead of the byte. Concatenating
+    # the raw bytes of consecutive tokens reconstructs the text exactly, in any
+    # language. Special tokens keep their literal text, so the firmware can find
+    # the end-of-text id by looking for it in the table.
+    symbol_to_byte = {v: k for k, v in bytes_to_unicode().items()}
+    id_to_token = {i: t for t, i in tok.get_vocab().items()}
     blob = bytearray()
     offs = [0]
     for i in range(V):
-        s = tok.decode([i])
-        blob.extend(s.encode("utf-8"))
+        token = id_to_token[i]
+        if all(ch in symbol_to_byte for ch in token):
+            blob.extend(symbol_to_byte[ch] for ch in token)
+        else:
+            blob.extend(token.encode("utf-8"))
         offs.append(len(blob))
 
     # The output directory may not exist in a fresh clone.

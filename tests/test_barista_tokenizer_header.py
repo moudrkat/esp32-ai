@@ -268,6 +268,20 @@ class TestEncodingContract(GeneratorCase):
         self.reject("added tokens are configured",
                     tokenizer(added_tokens=[{"id": 0, "content": "<pad>"}]))
 
+    def test_special_token_in_the_vocabulary_is_accepted(self):
+        # The end-of-text marker of a trained tokenizer: special, and already a
+        # vocabulary entry under the same id, so the device has a table for it.
+        config = tokenizer(vocab_extra={"<|endoftext|>": 259},
+                           added_tokens=[{"id": 259, "content": "<|endoftext|>",
+                                          "special": True}])
+        self.run_generator(config)
+
+    def test_special_token_with_another_id_is_rejected(self):
+        self.reject("added tokens are configured",
+                    tokenizer(vocab_extra={"<|endoftext|>": 259},
+                              added_tokens=[{"id": 258, "content": "<|endoftext|>",
+                                             "special": True}]))
+
     def test_truncation_rejected(self):
         self.reject("truncation is configured", tokenizer(truncation={"max_length": 128}))
 

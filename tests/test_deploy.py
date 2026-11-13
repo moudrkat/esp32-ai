@@ -227,6 +227,24 @@ class ModelSelectionPicksMatchingParts(DeployHarness):
         self.run_deploy("tinystories")
         self.assertNotIn("verify_tokenizer.py", "\n".join(self.calls()))
 
+    def test_oled_shares_the_sketch_and_regenerates_its_encoder(self):
+        self.artifacts("oled", ["model.bin", "tokenizer.json"])
+        self.assertEqual(self.run_deploy("oled").returncode, 0)
+        joined = "\n".join(self.calls())
+        self.assertIn("firmware/esp32_tinystories", joined)
+        self.assertIn("esp32_tinystories/tools/generate_tokenizer_header.py", joined)
+        self.assertIn("esp32_tinystories/generated/tokenizer_encoder.h", joined)
+        self.assertNotIn("esp32_barista", joined)
+
+    def test_each_kind_writes_its_own_prompt_format(self):
+        header = self.repo / "firmware" / "esp32_tinystories" / "generated" / "prompt_format.h"
+        self.artifacts("oled", ["model.bin", "tokenizer.json"])
+        self.run_deploy("oled")
+        self.assertIn("OLED_PROGRAM", header.read_text())
+        self.artifacts("tinystories", ["model.bin", "tokenizer.json"])
+        self.run_deploy("tinystories")
+        self.assertIn('#define PROMPT_PREFIX ""', header.read_text())
+
 
 class OrderProtectsTheBoard(DeployHarness):
     def setUp(self):
@@ -298,7 +316,8 @@ class ToolsRunOutsideTheProjectEnvironment(DeployHarness):
                                    "vocab.json", "layout.json"])
 
     def test_no_uv_call_uses_the_project_environment(self):
-        for model, expected in (("barista", 3), ("tinystories", 1)):
+        self.artifacts("oled", ["model.bin", "tokenizer.json"])
+        for model, expected in (("barista", 3), ("tinystories", 2), ("oled", 2)):
             with self.subTest(model=model):
                 self.log.unlink(missing_ok=True)
                 self.assertEqual(self.run_deploy(model).returncode, 0)

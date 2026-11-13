@@ -113,6 +113,7 @@ def verify_tokenizer(ck, tokenizer_path, allow_unverified):
 
 
 def main():
+    global OUT
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("tag", nargs="?", default="ple-cleandeploy-s0",
                     help="checkpoint tag under runs/, without .pt")
@@ -121,8 +122,11 @@ def main():
                          "becomes output_vocab")
     ap.add_argument("--allow-unverified-tokenizer", action="store_true",
                     help="export from a checkpoint that records no tokenizer hash")
+    ap.add_argument("--out", default=OUT,
+                    help="artifact directory to write; default artifacts/tinystories")
     args = ap.parse_args()
     tag = args.tag
+    OUT = args.out
     os.makedirs(OUT, exist_ok=True)
     ck = torch.load(os.path.join(RUNS, f"{tag}.pt"), map_location="cpu", weights_only=False)
     cfg = Config(**ck["cfg"])
