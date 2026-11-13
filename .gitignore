@@ -24,3 +24,4 @@ videos/
 *.mov
 *.MOV
 *.MP4
+brainscope_adapter/dump_logits

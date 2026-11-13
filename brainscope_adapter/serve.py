@@ -6,7 +6,7 @@ build_hf.py. Any extra arguments pass straight through to brainscope
 (--port, --lens, --no-browser, ...).
 
 Run with brainscope's environment:
-    ~/projekty/brainscope/.venv/bin/python brainscope_adapter/serve.py
+    $BRAINSCOPE_PY brainscope_adapter/serve.py
 """
 
 import os
@@ -15,7 +15,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-BRAINSCOPE_REPO = Path.home() / "projekty" / "brainscope"
+BRAINSCOPE_REPO = Path(os.environ.get("BRAINSCOPE_REPO", Path.home() / "brainscope"))
 # PLE_HF_DIR selects which twin to serve, e.g. the --zero-ple-table build.
 HF_DIR = Path(os.environ.get("PLE_HF_DIR", ROOT / "artifacts" / "tinystories" / "hf"))
 

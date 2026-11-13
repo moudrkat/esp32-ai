@@ -4,17 +4,18 @@ Same trick as serve.py: register the PLE architecture, then hand over to
 brainscope's own extract CLI. Defaults bake in the demo: the "dark" story-mood
 direction from mood_pairs.jsonl at layer 3 (of 6), written next to the twin.
 
-    ~/projekty/brainscope/.venv/bin/python brainscope_adapter/extract_direction.py
-    ~/projekty/brainscope/.venv/bin/python brainscope_adapter/serve.py \
+    $BRAINSCOPE_PY brainscope_adapter/extract_direction.py
+    $BRAINSCOPE_PY brainscope_adapter/serve.py \
         --directions artifacts/tinystories/dirs.json
 """
 
+import os
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-BRAINSCOPE_REPO = Path.home() / "projekty" / "brainscope"
+BRAINSCOPE_REPO = Path(os.environ.get("BRAINSCOPE_REPO", Path.home() / "brainscope"))
 
 sys.path.insert(0, str(HERE))
 if BRAINSCOPE_REPO.is_dir():

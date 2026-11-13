@@ -19,8 +19,8 @@ $BRAINSCOPE_PY brainscope_adapter/serve.py              # brainscope on :8010
 ```
 
 `$BRAINSCOPE_PY` is any python with `torch`, `transformers` and brainscope
-importable. `serve.py` looks for a brainscope checkout at
-`~/projekty/brainscope`; with brainscope pip-installed, the path insert is
+importable. `serve.py` looks for a brainscope checkout at `$BRAINSCOPE_REPO`
+(default `~/brainscope`); with brainscope pip-installed, the path insert is
 simply unused.
 
 The model is not a chat model - it continues text. The tokenizer's chat
