@@ -25,3 +25,5 @@ videos/
 *.MOV
 *.MP4
 brainscope_adapter/dump_logits
+.idea/
+SHIP.md
