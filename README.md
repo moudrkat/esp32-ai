@@ -4,14 +4,7 @@ Fork of [slvDev/esp32-ai](https://github.com/slvDev/esp32-ai). The runtime, the 
 firmware and everything below the line are slvDev's work (MIT). This fork adds one thing: type a request in
 English, and a model on the ESP32-S3 writes a small program for its 128x64 screen; the same chip then runs it.
 
-```
-> draw a house
-clear()
-rect(44, 32, 40, 20)
-line(44, 32, 64, 12)
-line(64, 12, 84, 32)
-rect(60, 42, 6, 10)
-```
+![The board writes a program for "draw a house", then runs it](media/oled-draw-a-house.jpg)
 
 | | |
 |---|---|
