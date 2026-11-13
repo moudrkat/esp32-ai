@@ -1,3 +1,56 @@
+# esp32-ai, fork: the chip writes a program and runs it
+
+Fork of [slvDev/esp32-ai](https://github.com/slvDev/esp32-ai). The runtime, the Per-Layer Embeddings model, the
+firmware and everything below the line are slvDev's work (MIT). This fork adds one thing: type a request in
+English, and a model on the ESP32-S3 writes a small program for its 128x64 screen; the same chip then runs it.
+
+```
+> draw a house
+clear()
+rect(44, 32, 40, 20)
+line(44, 32, 64, 12)
+line(64, 12, 84, 32)
+rect(60, 42, 6, 10)
+```
+
+| | |
+|---|---|
+| Model | 2.9M core + 0.8M lookup table, 2.1 MB at 4-bit |
+| Speed | about 9 tokens/s, "draw a house" in 5.6 s |
+| Held-out requests | 98% draw the same picture as the reference (600 requests) |
+| At the board | 17 of 18 requests ran; the refused one said "twice", which the data does not have |
+
+How it works:
+
+- **The language** ([`research/oled/lang.py`](research/oled/lang.py)): a small Python for the screen. `clear`,
+  `text`, `pixel`, `line`, `rect`, `fill`, `circle`, `wait`, variables, `for`, `while`, `if`. Limits on steps,
+  waiting and string length, so whatever the model writes, the chip stays in charge.
+- **The interpreter on the chip** ([`runtime/oled_lang.h`](runtime/oled_lang.h)): C99, no malloc. Draws the same
+  frames as the Python one on every program in the data; on 20,000 broken programs both refuse the same ones.
+- **The data** ([`research/oled/gen.py`](research/oled/gen.py)): 305,654 request -> program pairs from rules, no
+  model involved, every program run before it is kept. Text, countdowns, shapes, animations; anything it cannot
+  draw gets an honest `?`.
+- **The score** ([`research/oled/eval.py`](research/oled/eval.py)): the program the model writes is run and its
+  frames compared with the reference's, however it is spelled.
+
+It understands requests like the ones in the data. A sentence far from them can draw the wrong thing.
+
+Try it: train and export with `research/oled` and `research/tinystories`, then
+
+```bash
+scripts/deploy.sh oled
+uv run --no-project --with pyserial python scripts/oled_talk.py
+```
+
+A first attempt taught the model plain Python functions. It was dropped before training: the chip cannot run
+Python, so the code would only be text on the screen, with nothing on the board to check it. A language the chip
+runs itself can be checked: the program draws the right picture or it does not.
+
+Close relatives: [llmOS](https://huggingface.co/DibaAi/llmOS) (a sentence -> an automation rule on an ESP32-S3)
+and [esp32-gpio-llm](https://github.com/manjunathshiva/esp32-gpio-llm) (a sentence -> one GPIO command).
+
+---
+
 # Running a 28.9M parameter LLM on a microcontroller
 
 <p align="center">
