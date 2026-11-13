@@ -233,6 +233,9 @@ static void emit(int tok) {
   // whole generation once the TX buffer fills.
   if ((int)Serial.availableForWrite() >= len) Serial.write(bytes, len);
 #if USE_DISPLAY
+#if defined(OLED_PROGRAM)
+  if (collecting)                       // the request is drawn as a header instead, see request_header()
+#endif
   display_puts(bytes, len);
 #endif
 #if defined(OLED_PROGRAM)
@@ -260,10 +263,32 @@ static void g_wait(void *, int ms) {
 }
 static void g_done(void *) { oled.display(); }
 
+// What you typed, black on a white bar at the top, so the request and what the board writes below it never
+// look alike. Up to two lines of 21 characters.
+#ifndef OLED_BLACK
+#define OLED_BLACK 0                    // black is 0 on both SSD1306 and SH1106
+#endif
+static char oled_request[64];
+static void request_header() {
+  int n = strlen(oled_request), lines = n > 21 ? 2 : 1;
+  oled.fillRect(0, 0, SCR_W, lines * CH + 2, OLED_WHITE);
+  oled.setTextSize(1);
+  oled.setTextColor(OLED_BLACK);
+  for (int i = 0; i < lines; i++) {
+    char row[22];
+    snprintf(row, sizeof(row), "%.21s", oled_request + 21 * i);
+    oled.setCursor(1, 1 + i * CH);
+    oled.print(row);
+  }
+  oled.setTextColor(OLED_WHITE);
+  ox = 0; oy = lines * CH + 4;
+  oled.display();
+}
+
 static void run_program() {
   program[program_len] = 0;
   ol_io io = {nullptr, g_clear, g_text, g_pixel, g_line, g_rect, g_fill, g_circle, g_wait, g_done};
-  delay(700);                              // the written code stays a moment before it runs
+  delay(2000);                             // the written code stays long enough to be read before it runs
   oled.clearDisplay();
   int64_t t0 = esp_timer_get_time();
   int rc = ol_parse(olm, program);
@@ -405,6 +430,9 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
 #if USE_DISPLAY
   display_home();
 #endif
+#if defined(OLED_PROGRAM)
+  request_header();
+#endif
   int pos = 0, tok = 0;
   int64_t decode_us = 0;
   int decoded = 0;
@@ -491,6 +519,9 @@ static void run_story(const int *prompt_ids, int n_prompt, float temp) {
 // panel is writing. Room is reserved for the answer: a long prompt cannot
 // eat the whole context.
 static void prompt_story(const char *text) {
+#if defined(OLED_PROGRAM)
+  snprintf(oled_request, sizeof(oled_request), "%s", text);
+#endif
   char wrapped[320];
   snprintf(wrapped, sizeof(wrapped), "%s%s%s", PROMPT_PREFIX, text, PROMPT_SUFFIX);
   uint16_t enc[96];

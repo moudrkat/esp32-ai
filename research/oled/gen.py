@@ -39,18 +39,23 @@ COMMON = ("you me we it is am are be do can will thanks thank please sorry happy
           "meeting call me baby mom dad kids friend team boss name time day week year birthday luck night morning "
           "evening hey hello bye goodbye ciao ahoj hola welcome congrats bravo oops help danger warning alarm fire ice "
           "hot cold warm rain snow wind sunny cloudy north south east west left right up down start end next back menu "
-          "score level game over winner player one two three four five six seven eight nine ten zero").split()
+          "score level game over winner player one two three four five six seven eight nine ten zero "
+          "inside outside prompt code coding model tiny small little chip board screen runs run here this that "
+          "I my your our").split()
 PHRASES = ["thank you", "good luck", "happy birthday", "see you", "see you soon", "love you", "miss you", "i love you",
            "well done", "good job", "nice day", "have fun", "be right back", "do not disturb", "game over",
            "happy new year", "merry christmas", "get well soon", "on my way", "you win", "you lose", "try again",
            "time for tea", "back in 5", "lunch time", "coffee break", "no signal", "low battery", "out of order",
            "come in", "keep out", "be quiet", "hello there", "good evening", "good afternoon", "sweet dreams",
-           "all good", "not now", "call me", "wake up", "go home", "let's go", "level up", "high score", "press start"]
+           "all good", "not now", "call me", "wake up", "go home", "let's go", "level up", "high score", "press start",
+           "you prompt", "I code", "inside", "tiny chip", "inside a tiny chip", "I code inside", "runs inside", "in a chip",
+           "tiny coding model", "right here", "on this chip"]
 DICT = Path("/usr/share/dict/words")   # any word list; the model must learn to copy words, not remember them
 # shapes the language can draw; anything else asked to be drawn gets an honest "?"
 KNOWN = {"circle", "ring", "rings", "square", "box", "rectangle", "frame", "border", "line", "lines", "dot", "dots",
          "ball", "grid", "smiley", "face", "target", "triangle", "heart", "house", "sun", "star", "arrow", "stripes",
-         "checkerboard", "staircase", "stairs", "cross", "plus", "x", "bar", "outline", "spiral", "pattern"}
+         "checkerboard", "staircase", "stairs", "cross", "plus", "x", "bar", "outline", "spiral", "pattern", "cup",
+         "mug"}
 _dict = None
 
 
@@ -130,6 +135,15 @@ def num(r, n):
     return NUMWORD[n] if n in NUMWORD and r.random() < 0.4 else str(n)
 
 
+def times(r, n):
+    """How many times, as a person might say it."""
+    if n == 2 and r.random() < 0.4:
+        return "twice"
+    if n == 3 and r.random() < 0.2:
+        return "thrice"
+    return f"{num(r, n)} times"
+
+
 def cx(s):
     return max(0, (W - CW * len(s)) // 2)
 
@@ -191,7 +205,10 @@ def f_count(r):
         prompt += pick(r, [f" then show {fin}", f" and then write {fin}", f", then say {fin}", f" and then {fin}",
                            f" and end with {fin}", f", then {fin}", f" and finish with {fin}", f" then write {fin}"])
     prog = f"for {v} in {rng}:\n    clear()\n    text(60, 28, str({v}))\n    wait({ms})\n"
-    if end:
+    if end and len(fin) <= 21 and r.random() < 0.3:
+        prompt += pick(r, [" with a cup", " and a cup", " and draw a cup", " with a coffee cup", " and a mug", " with a mug"])
+        prog += f'clear()\ntext({cx(fin)}, 4, "{fin}")\n' + cup(60, 42, 12)
+    elif end:
         prog += f'clear()\ntext({cx(fin)}, 28, "{fin}")\n'
     return prompt, prog
 
@@ -285,6 +302,22 @@ def f_star(r):
     return f"{draw_verb(r)} a {sz}star" + (" " + where if where else ""), "clear()\n" + star(x, y, R)
 
 
+def cup(x, y, s):
+    """A mug: body, handle on the right, two wisps of steam."""
+    out = f"rect({x - s}, {y - s}, {2 * s}, {2 * s})\nrect({x + s - 1}, {y - s // 2}, {s // 2 + 2}, {s})\n"
+    for sx in (x - s // 2, x + s // 2):
+        out += f"line({sx}, {y - s - 3}, {sx + 2}, {y - s - 6})\nline({sx + 2}, {y - s - 6}, {sx}, {y - s - 9})\n"
+    return out
+
+
+def f_cup(r):
+    sz, s = size(r, 8, 12, 16)
+    where, x, y = spot(r, s + 4)
+    y = min(max(y, s + 10), 63 - s)
+    noun = pick(r, ["cup", "mug", "coffee cup", "cup of coffee", "cup of tea", "coffee mug", "hot drink"])
+    return f"{draw_verb(r)} a {sz}{noun}" + (" " + where if where else ""), "clear()\n" + cup(x, y, s)
+
+
 def f_arrow(r):
     d = pick(r, ["right", "left", "up", "down"])
     ph = pick(r, [f"draw an arrow pointing {d}", f"an arrow to the {d}" if d in ("left", "right") else f"an arrow pointing {d}",
@@ -313,10 +346,10 @@ def f_blink_screen(r):
     n = r.randint(2, 6)
     sp, ms = pick(r, SPEED)
     v = pick(r, VAR)
-    prompt = pick(r, [f"blink the screen {num(r, n)} times", f"flash the screen {num(r, n)} times",
-                      f"flash the display {num(r, n)} times", f"make the screen blink {num(r, n)} times",
+    prompt = pick(r, [f"blink the screen {times(r, n)}", f"flash the screen {times(r, n)}",
+                      f"flash the display {times(r, n)}", f"make the screen blink {times(r, n)}",
                       "blink the screen", "flash the screen", "make the screen flash"])
-    if "times" not in prompt:
+    if not any(t in prompt for t in (" times", "twice", "thrice")):
         n = 3
     prompt += (" " + sp if sp else "")
     return prompt, f"for {v} in range({n}):\n    fill(0, 0, 128, 64)\n    wait({ms})\n    clear()\n    wait({ms})\n"
@@ -472,10 +505,10 @@ def f_bounce(r):
     size = pick(r, [("", 4), ("small ", 2), ("big ", 8)])
     sp, ms = pick(r, SPEED)
     step = {100: 8, 150: 6, 300: 4, 600: 2, 1000: 1}[ms]
-    prompt = pick(r, [f"bounce a {size[0]}ball", f"bounce a {size[0]}ball {num(r, n)} times", f"a bouncing {size[0]}ball",
+    prompt = pick(r, [f"bounce a {size[0]}ball", f"bounce a {size[0]}ball {times(r, n)}", f"a bouncing {size[0]}ball",
                       f"animate a bouncing {size[0]}ball", f"a {size[0]}ball that bounces", f"bouncing {size[0]}ball",
-                      f"a {size[0]}ball bouncing left and right", f"a {size[0]}ball bouncing between the walls {num(r, n)} times"])
-    if "times" not in prompt:
+                      f"a {size[0]}ball bouncing left and right", f"a {size[0]}ball bouncing between the walls {times(r, n)}"])
+    if not any(t in prompt for t in (" times", "twice", "thrice")):
         n = 3
     prompt += (" " + sp if sp else "")
     R = size[1]
@@ -508,8 +541,8 @@ def f_blink(r):
     n = r.randint(2, 6)
     sp, ms = pick(r, SPEED)
     v = pick(r, VAR)
-    prompt = pick(r, [f"blink {w} {num(r, n)} times", f"flash {w} {num(r, n)} times", f"make {w} blink {num(r, n)} times",
-                      f"make the word {w} blink {num(r, n)} times", f"blink the text {w} {num(r, n)} times"]) + (" " + sp if sp else "")
+    prompt = pick(r, [f"blink {w} {times(r, n)}", f"flash {w} {times(r, n)}", f"make {w} blink {times(r, n)}",
+                      f"make the word {w} blink {times(r, n)}", f"blink the text {w} {times(r, n)}"]) + (" " + sp if sp else "")
     return prompt, f'for {v} in range({n}):\n    clear()\n    text({cx(w)}, 28, "{w}")\n    wait({ms})\n    clear()\n    wait({ms})\n'
 
 
@@ -600,11 +633,12 @@ def f_checker(r):
                     f"        if (x // {q} + y // {q}) % 2 == 0:\n            fill(x, y, {q}, {q})\n")
 
 
+
 FAMILIES = [f_text, f_two_lines, f_count, f_circle, f_frame, f_box, f_lines, f_stripes, f_grid, f_rings, f_dots,
             f_smiley, f_move, f_bounce, f_grow, f_blink, f_progress, f_scroll, f_boxed_word, f_circle_word,
             f_count_then_shape, f_numbers_list, f_squares, f_even_numbers, f_staircase, f_checker,
             f_square, f_triangle, f_heart, f_house, f_sun, f_star, f_arrow, f_fill_screen, f_clear_screen,
-            f_blink_screen, f_row, f_unknown]
+            f_blink_screen, f_row, f_unknown, f_cup]
 # how often each family is drawn: open-ended ones (any word, any shape) need many more examples to learn copying
 WEIGHT = {"text": 6, "unknown": 3, "blink": 2, "scroll": 2, "boxed_word": 2, "circle_word": 2, "two_lines": 2, "count": 3,
           "circle": 2, "square": 2, "smiley": 2}
