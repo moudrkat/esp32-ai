@@ -42,6 +42,9 @@ runs itself can be checked: the program draws the right picture or it does not.
 Close relatives: [llmOS](https://huggingface.co/DibaAi/llmOS) (a sentence -> an automation rule on an ESP32-S3)
 and [esp32-gpio-llm](https://github.com/manjunathshiva/esp32-gpio-llm) (a sentence -> one GPIO command).
 
+**Next:** pins and buttons in the language, so the chip writes small programs that drive real hardware
+("blink the LED when I press the button").
+
 ## PRs welcome
 
 New shapes and animations (a family in [`research/oled/gen.py`](research/oled/gen.py)), pins and buttons in the
