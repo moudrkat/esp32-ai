@@ -28,7 +28,9 @@ How it works:
 
 It understands requests like the ones in the data. A sentence far from them can draw the wrong thing.
 
-Try it: train and export with `research/oled` and `research/tinystories`, then
+Try it without building anything: the whole board image (firmware + model) is on Hugging Face,
+[Unt1l1f1nd/esp32-tiny-coding-model](https://huggingface.co/Unt1l1f1nd/esp32-tiny-coding-model), one `esptool`
+command. Or train and export with `research/oled` and `research/tinystories`, then
 
 ```bash
 scripts/deploy.sh oled
