@@ -53,6 +53,8 @@ New shapes and animations (a family in [`research/oled/gen.py`](research/oled/ge
 language ([`lang.py`](research/oled/lang.py) and [`runtime/oled_lang.h`](runtime/oled_lang.h)), or your own
 sentences as an issue: how many of them the chip gets right is the number that matters.
 
+And what would you use a model on a chip for? [Tell me](https://github.com/moudrkat/tell-me/discussions/2).
+
 ---
 
 # Running a 28.9M parameter LLM on a microcontroller
